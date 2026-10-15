@@ -2,7 +2,7 @@ import secrets
 import uuid
 from datetime import timedelta
 
-from breeze.identity.clock import Clock, SystemClock, stamp
+from breeze.identity.clock import Clock, SystemClock, stamp, utc_iso
 from breeze.identity.models import AuditEvent, User
 from breeze.identity.passwords import (
     MIN_PASSWORD_LENGTH,
@@ -111,8 +111,7 @@ class AuthService:
     def user_for_token(self, token: str | None) -> User | None:
         if not token:
             return None
-        marks = stamp(self._clock)
-        user_id = self._store.session_user_id(token, marks["time"])
+        user_id = self._store.session_user_id(token, utc_iso(self._clock.now()))
         if user_id is None:
             return None
         return self._store.get_user_by_id(user_id)
@@ -140,13 +139,11 @@ class AuthService:
         return self._store.list_audit(limit)
 
     def _start_session(self, user: User) -> str:
-        marks = stamp(self._clock)
-        expires = (self._clock.now() + timedelta(hours=self._session_hours)).isoformat(
-            timespec="seconds"
-        )
+        now = self._clock.now()
+        expires = utc_iso(now + timedelta(hours=self._session_hours))
         token = secrets.token_urlsafe(32)
         self._store.drop_sessions_for_user(user.id)
-        self._store.create_session(token, user.id, marks["time"], expires)
+        self._store.create_session(token, user.id, utc_iso(now), expires)
         return token
 
     def _register_failure(self, account: str, ip: str) -> None:
@@ -154,25 +151,24 @@ class AuthService:
         self._bump(f"ip:{ip}")
 
     def _bump(self, key: str) -> None:
-        marks = stamp(self._clock)
+        now = self._clock.now()
+        now_iso = utc_iso(now)
         failures, locked_until = self._store.lockout(key)
-        if locked_until and locked_until > marks["time"]:
+        if locked_until and locked_until > now_iso:
             return
         failures += 1
         locked = None
         if failures >= self._max_failures:
-            locked = (self._clock.now() + timedelta(seconds=self._lockout_seconds)).isoformat(
-                timespec="seconds"
-            )
+            locked = utc_iso(now + timedelta(seconds=self._lockout_seconds))
             failures = 0
             self._audit(key, "-", "lockout", f"until={locked}")
-        self._store.set_lockout(key, failures, locked, marks["time"])
+        self._store.set_lockout(key, failures, locked, now_iso)
 
     def _is_locked(self, key: str) -> bool:
         _failures, locked_until = self._store.lockout(key)
         if not locked_until:
             return False
-        return locked_until > stamp(self._clock)["time"]
+        return locked_until > utc_iso(self._clock.now())
 
     def _lock_message(self) -> str:
         return f"嘗試次數過多，請 {self.lockout_minutes} 分鐘後再試"

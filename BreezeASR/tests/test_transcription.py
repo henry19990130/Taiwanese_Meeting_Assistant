@@ -129,22 +129,28 @@ class TranscriptionFlowTest(unittest.TestCase):
             self.assertEqual(bob.get(f"/api/transcripts/{record_id}").status_code, 404)
             self.assertEqual(bob.delete(f"/api/transcripts/{record_id}").status_code, 404)
 
-            job = alice.post(
-                "/api/jobs",
-                files={"file": ("hello.wav", tone_wav(), "audio/wav")},
-            )
-            self.assertEqual(job.status_code, 200)
-            self.assertEqual(bob.get(f"/api/jobs/{job.json()['id']}").status_code, 404)
+            job_id = None
+            try:
+                job = alice.post(
+                    "/api/jobs",
+                    files={"file": ("hello.wav", tone_wav(), "audio/wav")},
+                )
+                self.assertEqual(job.status_code, 200)
+                job_id = job.json()["id"]
+                self.assertEqual(bob.get(f"/api/jobs/{job_id}").status_code, 404)
 
-            tagged = alice.put(
-                f"/api/transcripts/{record_id}/tags",
-                json={"tags": ["會議"]},
-            )
-            self.assertEqual(tagged.status_code, 200, tagged.text)
-            self.assertEqual(bob.put(
-                f"/api/transcripts/{record_id}/tags",
-                json={"tags": ["偷改"]},
-            ).status_code, 404)
+                tagged = alice.put(
+                    f"/api/transcripts/{record_id}/tags",
+                    json={"tags": ["會議"]},
+                )
+                self.assertEqual(tagged.status_code, 200, tagged.text)
+                self.assertEqual(bob.put(
+                    f"/api/transcripts/{record_id}/tags",
+                    json={"tags": ["偷改"]},
+                ).status_code, 404)
+            finally:
+                if job_id:
+                    _wait_job(alice, job_id)
 
 
 class TranscriptTagsTest(unittest.TestCase):
