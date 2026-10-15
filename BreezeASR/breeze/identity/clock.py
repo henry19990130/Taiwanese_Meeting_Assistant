@@ -25,3 +25,10 @@ def stamp(clock: Clock) -> dict[str, str]:
         "time_utc": utc.isoformat(timespec="seconds"),
         "tz": tz,
     }
+
+
+def utc_iso(moment: datetime) -> str:
+    """可比對的絕對時間。不同時區的 ISO 字串不能直接用文字排序。"""
+    if moment.tzinfo is None:
+        moment = moment.astimezone()
+    return moment.astimezone(timezone.utc).isoformat(timespec="seconds")
