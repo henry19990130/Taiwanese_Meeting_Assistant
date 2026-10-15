@@ -1,0 +1,29 @@
+﻿# Python
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+
+# Secrets
+.env
+.env.*
+!.env.example
+code.txt
+
+# Logs / cache
+*.log
+.cache/
+
+# Local ASR model weights (~6GB, not for GitHub)
+BreezeASR/model/
+models/
+
+# JS dependencies
+node_modules/
+
+# Bundled ffmpeg binaries (~250MB; install ffmpeg locally instead)
+BreezeASR/ffmpeg/bin/
+BreezeASR/ffmpeg/doc/
+
+# Nested third-party skill repo
+i-have-adhd-zh-tw/
