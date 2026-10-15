@@ -57,7 +57,7 @@ dependencies = [
     "rich==15.0.0",
     "safetensors==0.8.0",
     "scikit-learn==1.9.1",
-    "scipy==1.17.1",
+    "scipy==1.18.1",
     "setuptools==84.0.0",
     "shellingham==1.5.4",
     "soundfile==0.14.0",
