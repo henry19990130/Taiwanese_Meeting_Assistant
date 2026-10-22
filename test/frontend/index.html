@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>覓聲 MeetSum · AI 智慧會議紀錄與摘要</title>
+  <link rel="icon" href="img/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700&family=Noto+Serif+TC:wght@600;700;900&family=IBM+Plex+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="login-mode">
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="ms-mark" viewBox="0 0 48 48">
+      <g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="4">
+        <path d="M8 19V10a2 2 0 0 1 2-2h9" stroke="#2B2420"/>
+        <path d="M40 29v9a2 2 0 0 1-2 2h-9" stroke="#5E7A5A"/>
+      </g>
+      <g fill="#2B2420">
+        <rect x="15" y="20" width="4" height="8" rx="2"/>
+        <rect x="22" y="14" width="4" height="20" rx="2"/>
+        <rect x="29" y="18" width="4" height="12" rx="2"/>
+      </g>
+    </symbol>
+  </svg>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="brand-mark" width="32" height="32" role="img" aria-label="覓聲"><use href="#ms-mark"/></svg>
+      <span class="brand-name">覓聲</span>
+    </div>
+    <ol class="flow" id="flowSteps" aria-label="流程">
+      <li data-flow="upload"><span>01</span>上傳</li>
+      <li data-flow="listen"><span>02</span>聆聽</li>
+      <li data-flow="proof"><span>03</span>校對</li>
+      <li data-flow="summary"><span>04</span>重點</li>
+    </ol>
+    <div class="user" id="userBox" hidden>
+      <span id="userName"></span>
+      <button class="btn ghost small" id="logoutBtn" type="button">登出</button>
+    </div>
+  </header>
+  <main>
+    <section class="login" id="loginView">
+      <figure class="login-photo">
+        <img src="img/window-corner.jpg" alt="午後陽光下的窗邊木桌，桌上有麥克風、筆記本、茶杯和橄欖樹盆栽">
+        <figcaption><span>15:00 · 會議室</span><span>錄音只在這台電腦處理</span></figcaption>
+      </figure>
+      <div class="login-panel">
+        <div class="brand">
+          <svg class="brand-mark" width="40" height="40" role="img" aria-label="覓聲"><use href="#ms-mark"/></svg>
+          <span class="brand-name">覓聲</span><span class="brand-en">MeetSum</span>
+        </div>
+        <div class="login-main">
+          <p class="eyebrow">AI 智慧會議紀錄與摘要系統　·　<span id="loginGreeting">早安</span></p>
+          <h2 class="login-title">讓聲音被理解，<br>讓重點被記住。</h2>
+          <form id="loginForm" class="login-form" autocomplete="on">
+            <label>帳號<input class="line-input" name="username" required autocomplete="username" placeholder="你的帳號"></label>
+            <label>密碼<input class="line-input" name="password" type="password" required autocomplete="current-password"></label>
+            <p class="error" id="loginError" hidden></p>
+            <button class="btn primary pill-btn" type="submit">進入會議室 <span aria-hidden="true">→</span></button>
+          </form>
+        </div>
+        <div class="login-foot"><span>本機模式 · 錄音不上雲</span><span>台語＋華語辨識</span></div>
+      </div>
+    </section>
+    <div id="appView" hidden>
+      <section class="home-hero" id="homeHero">
+        <h2 id="homeGreeting">早安</h2>
+        <p>今天有哪一場會議，要好好聽懂？</p>
+      </section>
+      <section class="card" id="uploadCard">
+        <div class="upload-grid">
+          <form id="uploadForm">
+            <div class="source" role="radiogroup" aria-label="資料來源">
+              <label class="choice"><input type="radio" name="source" value="audio" checked> 錄音檔</label>
+              <label class="choice"><input type="radio" name="source" value="transcript"> 已經有逐字稿</label>
+            </div>
+            <label class="dropzone" id="audioField">
+              <svg class="dz-wave" width="120" height="40" viewBox="0 0 120 40" aria-hidden="true"><g fill="currentColor"><rect x="4" y="16" width="4" height="8" rx="2"/><rect x="12" y="10" width="4" height="20" rx="2"/><rect x="20" y="4" width="4" height="32" rx="2"/><rect x="28" y="12" width="4" height="16" rx="2"/><rect x="36" y="7" width="4" height="26" rx="2"/><rect x="44" y="14" width="4" height="12" rx="2"/><rect x="52" y="2" width="4" height="36" rx="2"/><rect x="60" y="9" width="4" height="22" rx="2"/><rect x="68" y="15" width="4" height="10" rx="2"/><rect x="76" y="6" width="4" height="28" rx="2"/><rect x="84" y="12" width="4" height="16" rx="2"/><rect x="92" y="17" width="4" height="6" rx="2"/><rect x="100" y="10" width="4" height="20" rx="2"/><rect x="108" y="15" width="4" height="10" rx="2"/></g></svg>
+              <span class="dz-title">把錄音放到桌上</span>
+              <span class="dz-hint">拖曳檔案到這裡，或點一下選擇 · m4a、mp3、wav、影片也可以<br>上傳後會自動切成一句一句，並標上每句的起訖時間</span>
+              <span class="dz-file" id="audioChip" hidden></span>
+              <input name="audio" type="file" accept="audio/*,video/*,.m4a,.mp3,.wav,.webm,.ogg,.flac" required aria-label="選擇會議錄音">
+            </label>
+            <label class="dropzone" id="transcriptField" hidden>
+              <svg class="dz-wave" width="120" height="40" viewBox="0 0 120 40" aria-hidden="true"><g fill="currentColor"><rect x="14" y="6" width="92" height="4" rx="2"/><rect x="14" y="16" width="72" height="4" rx="2"/><rect x="14" y="26" width="84" height="4" rx="2"/><rect x="14" y="36" width="48" height="4" rx="2"/></g></svg>
+              <span class="dz-title">把逐字稿放到桌上</span>
+              <span class="dz-hint">支援 txt、srt、vtt、json<br>檔案裡有時間就沿用；沒有時間會依換行與句子自動分段</span>
+              <span class="dz-file" id="transcriptChip" hidden></span>
+              <input name="transcript" type="file" accept=".txt,.srt,.vtt,.json,text/plain,application/json" aria-label="選擇逐字稿檔">
+            </label>
+            <label>會議名稱<input class="line-input" name="meeting_name" required maxlength="255" placeholder="例如：系統開發週會"></label>
+            <div class="row">
+              <label>會議日期<input class="line-input mono" name="date" type="date" required></label>
+              <label>開始時間<input class="line-input mono" name="start_time" type="time"></label>
+              <label>結束時間<input class="line-input mono" name="end_time" type="time"></label>
+            </div>
+            <p class="error" id="uploadError" hidden></p>
+            <div class="upload-actions">
+              <div class="glossary-row">
+                <button class="btn ghost small" type="button" id="glossaryBtn">專有名詞詞彙庫</button>
+                <small class="hint">AI 校對時會參考這些詞的正確寫法</small>
+              </div>
+              <button class="btn primary pill-btn" type="submit" id="uploadBtn">開始整理</button>
+            </div>
+          </form>
+          <aside class="desk-info">
+            <span class="eyebrow">這台電腦上</span>
+            <dl>
+              <div><dt>語音辨識</dt><dd id="infoAsr">—</dd></div>
+              <div><dt>摘要模型</dt><dd id="infoLlm">—</dd></div>
+              <div><dt>資料位置</dt><dd>本機</dd></div>
+            </dl>
+            <p class="desk-quote">錄音、逐字稿和重點，<br>都不會離開這張桌子。</p>
+          </aside>
+        </div>
+      </section>
+      <section class="card listen" id="progressCard" hidden>
+        <div class="card-head">
+          <div class="listen-title">
+            <span class="eyebrow mono" id="meetingTitle">處理進度</span>
+            <h2 id="listenTitle">正在聽…</h2>
+          </div>
+          <div class="listen-right">
+            <span class="elapsed" id="elapsed" aria-live="off">00:00</span>
+            <button class="btn ghost small" id="newMeetingBtn" type="button">＋ 新的會議</button>
+          </div>
+        </div>
+        <div class="wave" id="waveBox" aria-hidden="true"><canvas id="waveCanvas"></canvas><span class="wave-scan"></span></div>
+        <ol class="steps" id="steps">
+          <li data-step="uploaded">已上傳</li>
+          <li data-step="transcribing" id="stepTranscribing">語音辨識</li>
+          <li data-step="proofreading">AI 校對錯字</li>
+          <li data-step="reviewing">確認逐字稿</li>
+          <li data-step="summarizing">產生重點</li>
+          <li data-step="completed">完成</li>
+        </ol>
+        <p class="status-text" id="statusText"></p>
+        <p class="error" id="jobError" hidden></p>
+      </section>
+      <section class="card snapshot" id="summaryCard" hidden>
+        <div class="snap-head">
+          <div class="snap-title">
+            <div class="snap-meta" id="snapMeta"></div>
+            <h2 id="snapTitle">會議重點</h2>
+          </div>
+          <div class="actions">
+            <button class="btn ghost small" id="saveImageBtn" type="button">存成圖片</button>
+            <button class="btn ghost small" id="deckBtn" type="button" title="開啟列印視窗，目的地選「另存為 PDF」">下載簡報 PDF</button>
+            <button class="btn primary small" id="downloadSummaryBtn" type="button">下載重點</button>
+          </div>
+        </div>
+        <div class="headline" id="snapHeadline">
+          <span class="headline-label">一句話總結</span>
+          <p id="snapHeadlineText"></p>
+        </div>
+        <div class="kpis" id="snapKpis"></div>
+        <div id="snapBody"></div>
+        <p class="snap-foot" id="snapFoot"></p>
+      </section>
+      <section class="card" id="transcriptCard" hidden>
+        <div class="card-head">
+          <h2>逐字稿 <span class="muted" id="segmentCount"></span></h2>
+          <div class="actions">
+            <button class="btn ghost small" id="downloadJsonBtn" type="button">下載 JSON</button>
+            <button class="btn ghost small" id="reproofBtn" type="button" hidden>重新校對</button>
+            <button class="btn primary" id="confirmBtn" type="button" hidden>確認逐字稿</button>
+            <label class="sum-lang" id="summaryLangWrap" hidden title="產生的重點要用哪種語言">
+              重點語言
+              <select id="summaryLang">
+                <option value="zh">中文</option>
+                <option value="en">English</option>
+              </select>
+            </label>
+            <button class="btn primary" id="summarizeBtn" type="button" hidden>產生重點</button>
+          </div>
+        </div>
+        <div class="review-panel" id="reviewPanel" hidden>
+          <div class="rp-top">
+            <div class="rp-stats" id="rpStats"></div>
+            <div class="rp-tools">
+              <span class="typo-nav" id="typoNav">
+                <button class="btn ghost small" id="typoPrev" type="button" aria-label="上一處">‹</button>
+                <span id="typoCount"></span>
+                <button class="btn ghost small" id="typoNext" type="button" aria-label="下一處">›</button>
+              </span>
+              <button class="btn ghost small" id="acceptAllBtn" type="button">全部套用</button>
+              <button class="btn ghost small" id="rpGlossaryBtn" type="button">詞彙庫</button>
+            </div>
+          </div>
+          <div class="rp-item" id="rpItem"></div>
+          <ul class="rp-problems" id="rpProblems" hidden></ul>
+          <div class="rp-terms" id="rpTerms" hidden>
+            <div class="rp-terms-head">把你改過的詞加入詞彙庫，下次 AI 校對就會參考：</div>
+            <div class="rp-terms-list" id="rpTermsList"></div>
+            <button class="btn ghost small" id="rpTermsAdd" type="button">加入勾選的詞</button>
+          </div>
+          <p class="rp-hint">AI 沒抓到的錯字（例如專有名詞）：<b>用滑鼠選取逐字稿裡的文字</b>就能修改，可以只改那一處或全部取代；也可以點每段右邊的「✎」改整段。處理完按右上角「確認逐字稿」，才能產生重點。</p>
+          <p class="rp-msg" id="rpMsg" hidden></p>
+          <p class="error" id="rpError" hidden></p>
+        </div>
+        <ul class="transcript" id="transcriptList"></ul>
+      </section>
+    </div>
+  </main>
+  <div class="sel-bar" id="selBar" hidden>
+    <div class="sel-row">
+      <span class="sel-from" id="selFrom"></span><span class="muted">改成</span>
+      <input id="selInput" maxlength="200" aria-label="改成">
+    </div>
+    <div class="sel-row">
+      <button class="btn primary small" id="selOne" type="button">只改這裡</button>
+      <button class="btn ghost small" id="selAll" type="button">全部取代</button>
+      <label class="sel-check"><input type="checkbox" id="selAddTerm"> 改後的詞加入詞彙庫</label>
+    </div>
+    <div class="sel-row sel-sub">
+      <button class="linkish" id="selTermOnly" type="button">這個詞本身是對的，只加入詞彙庫</button>
+      <button class="linkish" id="selClose" type="button">取消</button>
+    </div>
+  </div>
+  <dialog class="glossary-dialog" id="glossaryDialog">
+    <div class="gd-head">
+      <h2>專有名詞詞彙庫 <span class="muted" id="gdCount"></span></h2>
+      <button class="btn ghost small" id="gdClose" type="button">關閉</button>
+    </div>
+    <p class="hint">AI 校對逐字稿時，會把發音相近的錯字建議改成這裡的寫法，這些詞本身也不會被改掉。每個帳號一份，最多 200 個詞。</p>
+    <form class="gd-add" id="gdForm">
+      <textarea id="gdInput" rows="2" placeholder="例如：Kubernetes、加權平均、佩珊（用換行或逗號分開，可一次加多個）"></textarea>
+      <button class="btn primary small" type="submit">新增</button>
+    </form>
+    <p class="gd-msg" id="gdMsg" hidden></p>
+    <input class="gd-filter" id="gdFilter" placeholder="搜尋詞彙" aria-label="搜尋詞彙">
+    <ul class="gd-list" id="gdList"></ul>
+  </dialog>
+  <div id="printDeck" aria-hidden="true"></div>
+  <div class="entrance" id="entrance" hidden>
+    <div class="ent-inner">
+      <div class="ent-mark" aria-hidden="true">
+        <svg class="ent-brackets" viewBox="0 0 48 48"><g fill="none" stroke-linecap="round" stroke-linejoin="round" stroke-width="3"><path d="M8 19V10a2 2 0 0 1 2-2h9" stroke="#2B2420"/><path d="M40 29v9a2 2 0 0 1-2 2h-9" stroke="#5E7A5A"/></g></svg>
+        <svg class="ent-bars" viewBox="0 0 48 48"><g fill="#2B2420"><rect class="b1" x="15" y="20" width="4" height="8" rx="2"/><rect class="b2" x="22" y="14" width="4" height="20" rx="2"/><rect class="b3" x="29" y="18" width="4" height="12" rx="2"/></g></svg>
+      </div>
+      <p class="ent-tagline" id="entTagline" role="status"></p>
+      <div class="ent-line"></div>
+      <span class="ent-greet" id="entranceGreeting"></span>
+    </div>
+  </div>
+  <script src="entrance.js"></script>
+  <script src="ui.js"></script>
+  <script src="app.js"></script>
+  <script src="deck.js"></script>
+  <script src="glossary.js"></script>
+</body>
+</html>
