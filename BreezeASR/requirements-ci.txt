@@ -1,6 +1,6 @@
 # 測試用的最小依賴。辨識模型與 torch 不進 CI，測試以假辨識器覆蓋。
-fastapi==0.143.0
-starlette==1.7.0
-httpx2==2.13.1
+fastapi==0.162.0
+starlette==1.10.0
+httpx2==2.16.0
 python-multipart==0.0.32
 requests==2.34.2
