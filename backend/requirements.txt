@@ -1,0 +1,19 @@
+fastapi>=0.115
+uvicorn[standard]>=0.30
+python-multipart>=0.0.9     # 處理上傳音檔 (multipart/form-data)
+python-dotenv>=1.0
+httpx>=0.27                 # 呼叫本機 Ollama API
+
+psycopg[binary]>=3.2        # PostgreSQL driver
+
+qwen-asr                    # 英文模型 Qwen3-ASR 的官方套件（會一併安裝它需要的 transformers 版本）
+faster-whisper>=1.1.1       # 不用來辨識了，但 VAD 分段（Silero）用它內建的模型；1.1.0 與新版 PyAV 不相容
+soundfile>=0.12
+pydub>=0.25
+numpy>=1.24
+huggingface-hub>=0.24
+transformers>=4.40          # 中文／台語／客語三個 Whisper 模型
+accelerate>=0.30
+opencc-python-reimplemented>=0.1.7  # 辨識結果簡轉繁（s2tw，純 Python）
+
+yt-dlp
