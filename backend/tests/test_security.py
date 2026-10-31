@@ -213,7 +213,8 @@ class SecurityRulesTest(unittest.TestCase):
             self.assertEqual(mod.main(), 0)
         self.assertTrue(created["row"]["password_hash"].startswith("pbkdf2_sha256$260000$"))
         self.assertNotIn(PASSWORD, created["row"]["password_hash"])
-        actions = [event["action"] for event in _events(self.root)]
+        events = sorted(_events(self.root), key=lambda event: event["time"])
+        actions = [event["action"] for event in events]
         self.assertEqual(actions[:2], ["註冊被拒", "註冊被拒"])
         self.assertIn("建立帳號", actions)
         for event in _events(self.root):
