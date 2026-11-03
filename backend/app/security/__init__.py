@@ -1,6 +1,7 @@
 """登入、稽核、上傳與資料隔離。實作放在這個資料夾。"""
 
 from app.security.passwords import (
+    DISPLAY_NAME_MAX,
     DUMMY_PASSWORD_HASH,
     LOCK_AFTER,
     LOCK_MINUTES,
@@ -11,13 +12,16 @@ from app.security.passwords import (
     lock_is_active,
     new_session_token,
     next_failure,
+    normalize_display_name,
     registration_error,
+    validate_display_name,
     validate_password,
     validate_username,
     verify_password,
 )
 
 __all__ = [
+    "DISPLAY_NAME_MAX",
     "DUMMY_PASSWORD_HASH",
     "LOCK_AFTER",
     "LOCK_MINUTES",
@@ -28,7 +32,9 @@ __all__ = [
     "lock_is_active",
     "new_session_token",
     "next_failure",
+    "normalize_display_name",
     "registration_error",
+    "validate_display_name",
     "validate_password",
     "validate_username",
     "verify_password",

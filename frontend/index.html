@@ -63,15 +63,35 @@
             <button class="btn primary pill-btn" type="submit">進入會議室 <span aria-hidden="true">→</span></button>
             <button class="linkish" type="button" id="showRegister">建立帳號</button>
           </form>
-          <form id="registerForm" class="login-form" hidden>
+          <form id="registerForm" class="login-form" hidden novalidate>
+            <label><span>怎麼稱呼您 <span class="opt">（選填）</span></span>
+              <input class="line-input" name="display_name" maxlength="20" autocomplete="nickname"
+                     placeholder="例如：小陳、王經理" aria-describedby="nameHint">
+              <span class="field-hint" id="nameHint">登入後會用這個稱呼跟您打招呼，最多 20 個字；不填就用帳號</span>
+            </label>
             <label>帳號
-              <input class="line-input" name="username" autocomplete="username" required>
+              <input class="line-input" name="username" autocomplete="username" required maxlength="32"
+                     aria-describedby="userRules">
+              <ul class="rules" id="userRules" aria-live="polite">
+                <li data-rule="ulen">3 到 32 碼</li>
+                <li data-rule="uchars">只能用英文、數字或底線 _</li>
+              </ul>
             </label>
             <label>密碼
-              <input class="line-input" name="password" type="password" autocomplete="new-password" required>
+              <input class="line-input" name="password" type="password" autocomplete="new-password" required
+                     aria-describedby="pwRules">
+              <ul class="rules" id="pwRules" aria-live="polite">
+                <li data-rule="plen">至少 12 碼</li>
+                <li data-rule="pletter">含英文字母</li>
+                <li data-rule="pdigit">含數字</li>
+              </ul>
             </label>
             <label>再輸入一次密碼
-              <input class="line-input" name="password2" type="password" autocomplete="new-password" required>
+              <input class="line-input" name="password2" type="password" autocomplete="new-password" required
+                     aria-describedby="pw2Rules">
+              <ul class="rules" id="pw2Rules" aria-live="polite">
+                <li data-rule="pmatch">兩次輸入相同</li>
+              </ul>
             </label>
             <p class="error" id="registerError" hidden></p>
             <button class="btn primary pill-btn" type="submit">建立帳號 <span aria-hidden="true">→</span></button>

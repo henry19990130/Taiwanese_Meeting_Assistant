@@ -33,4 +33,9 @@ def get_current_user(
         session = sessions.get_valid_session(conn, token_hash)
     if session is None:
         raise api_error(status.HTTP_401_UNAUTHORIZED, "SESSION_EXPIRED", "登入已失效，請重新登入")
-    return {"id": session["user_id"], "username": session["username"], "token_hash": token_hash}
+    return {
+        "id": session["user_id"],
+        "username": session["username"],
+        "display_name": session.get("display_name"),
+        "token_hash": token_hash,
+    }

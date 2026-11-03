@@ -10,7 +10,7 @@ VALUES (%s, %s, NOW() + %s * INTERVAL '1 second')
 RETURNING token_hash, user_id, created_at, expires_at
 """
 SQL_GET_VALID = """
-SELECT u.id AS user_id, u.username, s.expires_at
+SELECT u.id AS user_id, u.username, u.display_name, s.expires_at
 FROM sessions s
 JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = %s AND s.expires_at > NOW()

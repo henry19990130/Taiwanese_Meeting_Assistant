@@ -44,6 +44,23 @@ def validate_password(password: str) -> bool:
     return has_letter and has_digit
 
 
+DISPLAY_NAME_MAX = 20
+
+
+def normalize_display_name(value: str | None) -> str | None:
+    """「怎麼稱呼您」：去掉頭尾空白、把連續空白縮成一個、拿掉控制字元；空的回傳 None。"""
+    if not isinstance(value, str):
+        return None
+    text = "".join(ch for ch in value if ch.isprintable())
+    text = " ".join(text.split())
+    return text or None
+
+
+def validate_display_name(value: str | None) -> bool:
+    name = normalize_display_name(value)
+    return name is None or len(name) <= DISPLAY_NAME_MAX
+
+
 def registration_error(username: str, password: str) -> str | None:
     if not validate_username(username):
         return "username"

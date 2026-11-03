@@ -4,6 +4,8 @@ CREATE TABLE IF NOT EXISTS users (
     password_hash TEXT NOT NULL
 );
 
+ALTER TABLE users ADD COLUMN IF NOT EXISTS display_name VARCHAR(32);
+
 CREATE TABLE IF NOT EXISTS sessions (
     token_hash VARCHAR(64) PRIMARY KEY,
     user_id UUID NOT NULL REFERENCES users(id),

@@ -13,7 +13,9 @@ from app.security import (
     hash_password,
     hash_token,
     new_session_token,
+    normalize_display_name,
     registration_error,
+    validate_display_name,
     validate_password,
     validate_username,
     verify_password,
@@ -34,11 +36,21 @@ class LoginRequest(BaseModel):
 class RegisterRequest(BaseModel):
     username: str = Field(min_length=0, max_length=200)
     password: str = Field(min_length=0, max_length=200)
+    display_name: str = Field(default="", max_length=200)
 
 
 _USERNAME_MSG = "帳號只允許 3 到 32 碼的英數字或底線"
 _PASSWORD_MSG = "密碼至少 12 碼，而且要同時含英文字母和數字"
 _EXISTS_MSG = "這個帳號已經有人使用"
+_DISPLAY_MSG = "稱呼最多 20 個字"
+
+
+def _user_out(user: dict) -> dict:
+    return {
+        "id": str(user["id"]),
+        "username": user["username"],
+        "display_name": user.get("display_name") or None,
+    }
 
 
 def _open_session(conn, user: dict) -> str:
@@ -61,7 +73,7 @@ def _session_body(response: Response, user: dict, token: str) -> dict:
         "access_token": token,
         "token_type": "bearer",
         "expires_in": config.SESSION_TTL_SECONDS,
-        "user": {"id": str(user["id"]), "username": user["username"]},
+        "user": _user_out(user),
     }
 
 
@@ -124,6 +136,8 @@ def register(body: RegisterRequest, request: Request, response: Response) -> dic
     password = body.password
     ip = client_ip(request)
     reason = registration_error(username, password)
+    if reason is None and not validate_display_name(body.display_name):
+        reason = "display_name"
     if reason is not None:
         audit.record(
             username=username,
@@ -134,6 +148,8 @@ def register(body: RegisterRequest, request: Request, response: Response) -> dic
         )
         if reason == "username":
             raise api_error(422, "INVALID_USERNAME", _USERNAME_MSG)
+        if reason == "display_name":
+            raise api_error(422, "INVALID_DISPLAY_NAME", _DISPLAY_MSG)
         raise api_error(422, "INVALID_PASSWORD", _PASSWORD_MSG)
 
     user = None
@@ -144,7 +160,10 @@ def register(body: RegisterRequest, request: Request, response: Response) -> dic
             if users.get_by_username(conn, username) is not None:
                 taken = True
             else:
-                user = users.create_user(conn, username, hash_password(password))
+                user = users.create_user(
+                    conn, username, hash_password(password),
+                    display_name=normalize_display_name(body.display_name),
+                )
                 token = _open_session(conn, user)
     except UniqueViolation:
         taken = True
@@ -186,4 +205,4 @@ def logout(request: Request, user: dict = Depends(get_current_user)) -> Response
 
 @router.get("/me")
 def me(user: dict = Depends(get_current_user)) -> dict:
-    return {"id": str(user["id"]), "username": user["username"]}
+    return _user_out(user)

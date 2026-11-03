@@ -224,6 +224,22 @@ class SecurityRulesTest(unittest.TestCase):
         for path in self.root.iterdir():
             self.assertRegex(path.name, r"^[0-9a-f]{32}$")
 
+    def test_register_display_name(self):
+        state = self._auth_state()
+        client = self._auth_client(state)
+        too_long = client.post("/api/v1/auth/register",
+                               json={"username": "bob_long", "password": PASSWORD, "display_name": "名" * 21})
+        self.assertEqual(too_long.status_code, 422)
+        self.assertEqual(too_long.json()["detail"]["message"], "稱呼最多 20 個字")
+        created = client.post("/api/v1/auth/register",
+                              json={"username": "bob", "password": PASSWORD, "display_name": "  王  經理 \n"})
+        self.assertEqual(created.status_code, 200)
+        self.assertEqual(created.json()["user"]["display_name"], "王 經理")
+        self.assertEqual(state["created"]["bob"]["display_name"], "王 經理")
+        token = created.json()["access_token"]
+        me = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+        self.assertEqual(me.json()["display_name"], "王 經理")
+
     def test_register_endpoint_session_and_exists_message(self):
         state = self._auth_state()
         client = self._auth_client(state)
@@ -256,6 +272,7 @@ class SecurityRulesTest(unittest.TestCase):
         self.assertEqual(ttl, config.SESSION_TTL_SECONDS)
         me = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
         self.assertEqual(me.json()["username"], "new_user")
+        self.assertIsNone(me.json()["display_name"])
         actions = [event["action"] for event in _events(self.root)]
         self.assertEqual(actions.count("註冊被拒"), 4)
         self.assertIn("建立帳號", actions)
@@ -457,10 +474,11 @@ class SecurityRulesTest(unittest.TestCase):
                 return state["user"]
             return state["created"].get(username)
 
-        def create_user(conn, username, password_hash):
+        def create_user(conn, username, password_hash, display_name=None):
             if username == "taken":
                 raise UniqueViolation("duplicate")
-            row = {"id": uuid.uuid4(), "username": username, "password_hash": password_hash}
+            row = {"id": uuid.uuid4(), "username": username, "password_hash": password_hash,
+                   "display_name": display_name}
             state["created"][username] = row
             return row
 
@@ -490,7 +508,11 @@ class SecurityRulesTest(unittest.TestCase):
                     for row in state["created"].values():
                         if row["id"] == user_id:
                             name = row["username"]
-                return {"user_id": user_id, "username": name}
+                display = None
+                for row in state["created"].values():
+                    if row["id"] == user_id:
+                        display = row.get("display_name")
+                return {"user_id": user_id, "username": name, "display_name": display}
             return None
 
         app = FastAPI()

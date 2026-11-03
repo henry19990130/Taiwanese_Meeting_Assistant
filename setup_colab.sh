@@ -6,7 +6,8 @@ cd "$PROJECT_DIR"
 mkdir -p logs
 
 [ -f .env ] || cp .env.example .env
-set -a; source .env; set +a
+# 去掉 Windows 換行的 \r，否則每個值尾巴都會多一個看不見的字元
+set -a; source <(tr -d '\r' < .env); set +a
 
 DB_USER="${DB_USER:-meeting}"
 DB_PASSWORD="${DB_PASSWORD:-meeting}"
@@ -62,7 +63,7 @@ if [ "$(psql_admin "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'")" != "
 fi
 PGPASSWORD="$DB_PASSWORD" psql -q -h localhost -U "$DB_USER" -d "$DB_NAME" \
   -v ON_ERROR_STOP=1 -f database/schema.sql
-python scripts/create_user.py "${DEMO_USERNAME:-demo}" --password "${DEMO_PASSWORD:-demo1234}" --reset
+python scripts/create_user.py "${DEMO_USERNAME:-demo}" --password "${DEMO_PASSWORD:-demo1234demo1234demo1234}" --reset
 echo "完成：資料庫 ${DB_NAME}"
 
 step 4 "安裝 Ollama 並下載 ${LLM_MODEL}"

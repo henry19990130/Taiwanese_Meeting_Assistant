@@ -423,7 +423,7 @@ function openPanel() {
   $("asLauncher").setAttribute("aria-label", "收起會議小幫手");
   if (!as.greeted) {
     as.greeted = true;
-    botText(`嗨 ${(state.user && state.user.username) || ""}，我是鉛筆小書記！需要什麼幫助？選一個開始，或直接在下面問我。`);
+    botText(`嗨 ${(state.user && (state.user.display_name || state.user.username)) || ""}，我是鉛筆小書記！需要什麼幫助？選一個開始，或直接在下面問我。`);
     showMenu();
     loadOverview().catch(() => {});
   }

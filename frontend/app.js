@@ -50,9 +50,40 @@ function showAuth(which, message) {
   $("registerForm").hidden = !register;
   showError($("loginError"), register ? "" : (message || ""));
   showError($("registerError"), "");
+  if (register) updateRegRules();
 }
 
 function accountOk(name) { return /^[A-Za-z0-9_]{3,32}$/.test(name); }
+function displayName(user) {
+  const u = user || state.user;
+  return (u && (u.display_name || u.username)) || "";
+}
+
+// 註冊表單：規則一開始就列出來，邊打邊打勾，不用等按下送出才知道
+const REG_RULES = {
+  ulen: (v) => v.username.trim().length >= 3 && v.username.trim().length <= 32,
+  uchars: (v) => v.username.trim().length > 0 && /^[A-Za-z0-9_]*$/.test(v.username.trim()),
+  plen: (v) => v.password.length >= 12 && v.password.length <= 200,
+  pletter: (v) => /[A-Za-z]/.test(v.password),
+  pdigit: (v) => /[0-9]/.test(v.password),
+  pmatch: (v) => v.password2.length > 0 && v.password === v.password2,
+};
+const RULE_FIELD = { ulen: "username", uchars: "username", plen: "password", pletter: "password", pdigit: "password", pmatch: "password2" };
+function regValues() {
+  const f = $("registerForm");
+  return { username: f.username.value, password: f.password.value, password2: f.password2.value };
+}
+function updateRegRules(showAll = false) {
+  const v = regValues();
+  for (const li of $("registerForm").querySelectorAll(".rules li")) {
+    const rule = li.dataset.rule;
+    const ok = REG_RULES[rule](v);
+    const touched = showAll || v[RULE_FIELD[rule]].length > 0;
+    li.classList.toggle("is-ok", ok);
+    li.classList.toggle("is-bad", touched && !ok);
+  }
+}
+$("registerForm").addEventListener("input", () => updateRegRules());
 function passwordOk(password) {
   return password.length >= 12 && password.length <= 200 && /[A-Za-z]/.test(password) && /[0-9]/.test(password);
 }
@@ -62,7 +93,7 @@ async function enterRoom(data, form) {
   state.user = data.user;
   form.reset();
   showAuth("login");
-  if (window.Entrance) await Entrance.close(state.user.username);
+  if (window.Entrance) await Entrance.close(displayName());
   showApp();
   if (window.Entrance) Entrance.open();
 }
@@ -88,7 +119,13 @@ $("registerForm").addEventListener("submit", async (e) => {
   const username = String(f.get("username") || "").trim();
   const password = String(f.get("password") || "");
   const again = String(f.get("password2") || "");
+  const display_name = String(f.get("display_name") || "").trim();
   showError($("registerError"), "");
+  updateRegRules(true);
+  if (display_name.length > 20) {
+    showError($("registerError"), "稱呼最多 20 個字");
+    return;
+  }
   if (!accountOk(username)) {
     showError($("registerError"), "帳號只允許 3 到 32 碼的英數字或底線");
     return;
@@ -103,7 +140,7 @@ $("registerForm").addEventListener("submit", async (e) => {
   }
   try {
     const data = await api("/api/v1/auth/register", {
-      method: "POST", json: { username, password },
+      method: "POST", json: { username, password, display_name },
     });
     await enterRoom(data, e.target);
   } catch (err) { showError($("registerError"), err.message); }
@@ -131,8 +168,9 @@ function showApp() {
   $("loginView").hidden = true;
   $("appView").hidden = false;
   $("userBox").hidden = false;
-  $("userName").textContent = state.user.username;
-  if (window.Entrance) Entrance.greet(state.user.username);
+  $("userName").textContent = displayName();
+  $("userName").title = `帳號：${state.user.username}`;
+  if (window.Entrance) Entrance.greet(displayName());
   resetMeeting();
   if (typeof loadGlossary === "function") loadGlossary();
   if (window.assistant) window.assistant.onLogin();
@@ -634,7 +672,6 @@ $("summarizeBtn").addEventListener("click", async () => {
   }
 });
 
-const COLORS = { report: "#8a7e72", discussion: "#c9a273", decision: "#5e7a5a", action: "#2b2420" };
 const NEXT_LABEL = { confirmed: "已確認", tentative: "暫定", not_mentioned: "未提及" };
 
 async function loadSummary() {
@@ -761,42 +798,113 @@ function actionsBlock(items) {
   return s;
 }
 
+// 時間軸：每一類一條獨立的軌道，使用者自己勾要看哪幾類（預設只看決議，比較不擠）
+const TL_KINDS = [
+  { key: "decision", label: "決議", field: "decisions", text: (d) => d.summary },
+  { key: "action", label: "待辦", field: "action_items", text: (a) => a.task },
+  { key: "discussion", label: "討論", field: "discussions", text: (d) => d.topic || d.summary },
+  { key: "report", label: "報告", field: "reports", text: (r) => r.topic || r.summary },
+];
+const TL_STORE = "meetsum.timelineKinds";
+function loadTimelineKinds() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(TL_STORE) || "null");
+    if (Array.isArray(saved)) return new Set(saved.filter((k) => TL_KINDS.some((t) => t.key === k)));
+  } catch (_) { /* 瀏覽器不給存就用預設 */ }
+  return new Set(["decision"]);
+}
+function saveTimelineKinds(set) {
+  try { localStorage.setItem(TL_STORE, JSON.stringify([...set])); } catch (_) { /* 忽略 */ }
+}
+
 function timelineBlock(mc, times) {
-  const s = el("div", "block");
+  const s = el("div", "block timeline");
   const head = el("div", "timeline-head");
   head.append(blockTitle("會議時間軸", "plain"));
-  const legend = el("div", "legend");
-  for (const [k, label] of [["report", "報告"], ["discussion", "討論"], ["decision", "決議"], ["action", "待辦"]]) {
-    const i = el("span", null, label);
-    const dot = el("i"); dot.style.background = COLORS[k];
-    i.prepend(dot); legend.append(i);
+
+  const shown = loadTimelineKinds();
+  const filters = el("div", "tl-filters");
+  filters.setAttribute("role", "group");
+  filters.setAttribute("aria-label", "時間軸要顯示的類別");
+  const lanes = el("div", "tl-lanes");
+  const empty = el("p", "empty tl-empty", "勾選上面的類別，時間軸就會顯示那一類的時間點。");
+
+  const points = {};
+  for (const k of TL_KINDS) {
+    points[k.key] = (mc[k.field] || []).map((it) => ({ it, t: firstTime(it, times) })).filter((x) => x.t);
   }
-  head.append(legend);
-  const track = el("div", "track");
-  track.append(el("div", "track-line"));
-  const add = (items, kind, labelOf) => {
-    for (const it of items) {
-      const t = firstTime(it, times);
-      if (!t) continue;
-      const b = el("button", "mark");
-      b.type = "button";
-      b.style.left = `${(t.ms / times.duration) * 100}%`;
-      b.style.background = COLORS[kind];
-      const label = `${labelOf(it)}　${fmtMs(t.ms)}`;
-      b.title = label;
-      b.setAttribute("aria-label", label);
-      b.addEventListener("click", () => jumpTo(t.sid));
-      track.append(b);
+
+  const chips = {};
+  const allBtn = el("button", "tl-chip tl-all", "全部");
+  allBtn.type = "button";
+
+  const render = () => {
+    lanes.replaceChildren();
+    for (const k of TL_KINDS) {
+      chips[k.key].setAttribute("aria-pressed", String(shown.has(k.key)));
+      if (shown.has(k.key)) lanes.append(laneOf(k, points[k.key], times));
     }
+    allBtn.setAttribute("aria-pressed", String(shown.size === TL_KINDS.length));
+    empty.hidden = shown.size > 0;
+    saveTimelineKinds(shown);
   };
-  add(mc.reports, "report", (r) => `報告：${r.topic || r.summary || ""}`);
-  add(mc.discussions, "discussion", (d) => `討論：${d.topic || ""}`);
-  add(mc.decisions, "decision", (d) => `決議：${d.summary || ""}`);
-  add(mc.action_items, "action", (a) => `待辦：${a.task || ""}`);
+
+  for (const k of TL_KINDS) {
+    const b = el("button", `tl-chip tl-${k.key}`);
+    b.type = "button";
+    b.append(el("i", "tl-shape"), el("span", null, k.label), el("span", "tl-count", String(points[k.key].length)));
+    b.title = `在時間軸上顯示或隱藏${k.label}`;
+    b.addEventListener("click", () => {
+      if (shown.has(k.key)) shown.delete(k.key); else shown.add(k.key);
+      render();
+    });
+    chips[k.key] = b;
+    filters.append(b);
+  }
+  allBtn.addEventListener("click", () => {
+    if (shown.size === TL_KINDS.length) { shown.clear(); shown.add("decision"); }
+    else for (const k of TL_KINDS) shown.add(k.key);
+    render();
+  });
+  filters.append(allBtn);
+  head.append(filters);
+
   const ticks = el("div", "ticks");
   for (let i = 0; i <= 4; i++) ticks.append(el("span", null, fmtMs((times.duration * i) / 4)));
-  s.append(head, track, ticks);
+  const ticksRow = el("div", "tl-ticks-row");
+  ticksRow.append(el("span", "tl-lane-label"), ticks);
+
+  render();
+  s.append(head, lanes, empty, ticksRow);
   return s;
+}
+
+function laneOf(kind, pts, times) {
+  const lane = el("div", `tl-lane tl-${kind.key}`);
+  const label = el("span", "tl-lane-label", kind.label);
+  const track = el("div", "track");
+  track.append(el("div", "track-line"));
+  if (!pts.length) track.append(el("span", "tl-none", `這場會議沒有標到時間的${kind.label}`));
+  // 太靠近的點往上下錯開，不會疊在一起
+  const sorted = [...pts].sort((a, b) => a.t.ms - b.t.ms);
+  let lastPct = -100;
+  let row = 0;
+  sorted.forEach(({ it, t }, i) => {
+    const pct = (t.ms / times.duration) * 100;
+    row = pct - lastPct < 3 ? (row + 1) % 3 : 0;
+    lastPct = pct;
+    const b = el("button", "mark");
+    b.type = "button";
+    b.style.left = `${Math.min(100, Math.max(0, pct))}%`;
+    b.dataset.row = String(row);
+    const text = `${kind.label} ${i + 1}：${kind.text(it) || ""}　${fmtMs(t.ms)}`;
+    b.title = text;
+    b.setAttribute("aria-label", text);
+    b.addEventListener("click", () => jumpTo(t.sid));
+    track.append(b);
+  });
+  lane.append(label, track);
+  return lane;
 }
 
 function moreGroup(...blocks) {
