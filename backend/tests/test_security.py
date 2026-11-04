@@ -75,9 +75,10 @@ class SecurityRulesTest(unittest.TestCase):
     def test_username_and_password_rules(self):
         self.assertTrue(security.validate_username("abc"))
         self.assertTrue(security.validate_username("A_1"))
-        self.assertTrue(security.validate_username("a" * 32))
+        self.assertTrue(security.validate_username("a" * 33))    # now legal
+        self.assertTrue(security.validate_username("a" * 100))   # new upper bound
+        self.assertFalse(security.validate_username("a" * 101))  # new rejection    
         self.assertFalse(security.validate_username("ab"))
-        self.assertFalse(security.validate_username("a" * 33))
         self.assertFalse(security.validate_username("a-b"))
         self.assertFalse(security.validate_username("中文帳號"))
         self.assertTrue(security.validate_password("abcdef123456"))

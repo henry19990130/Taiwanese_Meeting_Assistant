@@ -13,7 +13,7 @@ _DKLEN = 32
 LOCK_AFTER = 5
 LOCK_MINUTES = 15
 
-USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,32}$")
+USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,100}$") #login_locks.username VARCHAR(100), vs users.username VARCHAR(100),
 
 
 def _b64e(b: bytes) -> str:

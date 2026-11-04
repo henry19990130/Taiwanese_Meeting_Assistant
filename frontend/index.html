@@ -70,8 +70,8 @@
               <span class="field-hint" id="nameHint">登入後會用這個稱呼跟您打招呼，最多 20 個字；不填就用帳號</span>
             </label>
             <label>帳號
-              <input class="line-input" name="username" autocomplete="username" required maxlength="32"
-                     aria-describedby="userRules">
+              <input class="line-input" name="username" autocomplete="username" required maxlength="100" 
+                     aria-describedby="userRules"> <!-- matching username length of password.py and schema.sql -->
               <ul class="rules" id="userRules" aria-live="polite">
                 <li data-rule="ulen">3 到 32 碼</li>
                 <li data-rule="uchars">只能用英文、數字或底線 _</li>
