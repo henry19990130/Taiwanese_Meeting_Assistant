@@ -39,6 +39,9 @@ ALTER TABLE meetings ADD COLUMN IF NOT EXISTS source_type VARCHAR(20) NOT NULL D
 ALTER TABLE meetings ALTER COLUMN audio_path DROP NOT NULL;
 ALTER TABLE meetings ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id);
 
+-- 每個使用者的會議列表（library / assistant 都靠這個查詢）：owner 過濾 + 日期排序
+CREATE INDEX IF NOT EXISTS meetings_owner_date_idx
+    ON meetings (created_by, date DESC, start_time DESC NULLS LAST, created_at DESC);
 
 CREATE TABLE IF NOT EXISTS meeting_transcripts (
     meeting_id UUID PRIMARY KEY
@@ -83,3 +86,5 @@ CREATE TABLE IF NOT EXISTS user_terms (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     UNIQUE (user_id, term)
 );
+-- 詞庫列表：user_id 過濾 + created_at 新→舊排序（UNIQUE 索引不提供此排序）
+CREATE INDEX IF NOT EXISTS user_terms_user_idx ON user_terms (user_id, created_at);
