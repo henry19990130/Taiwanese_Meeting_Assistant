@@ -122,6 +122,14 @@
               <span class="dz-file" id="audioChip" hidden></span>
               <input name="audio" type="file" accept="audio/*,video/*,.m4a,.mp3,.wav,.webm,.ogg,.flac" required aria-label="選擇會議錄音">
             </label>
+            <div class="asr-mode" id="asrModeField">
+              <div class="source" role="radiogroup" aria-label="辨識模式">
+                <span class="source-title">辨識模式</span>
+                <label class="choice"><input type="radio" name="asr_mode" value="cloud" checked> 雲端模式</label>
+                <label class="choice"><input type="radio" name="asr_mode" value="local"> 本地模式 (iOS 實機)</label>
+              </div>
+              <small class="hint" id="asrModeHint">雲端模式：上傳至伺服器辨譓，支援多語言與聲紋識別；本地模式：在 iPhone 上離線辨識，隱私優先</small>
+            </div>
             <div class="asr-lang" id="asrLangField">
               <div class="source" role="radiogroup" aria-label="會議語言">
                 <span class="source-title">會議語言</span>

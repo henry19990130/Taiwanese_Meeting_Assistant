@@ -52,6 +52,7 @@ def build_transcript(
                 "start_ms": s.get("start_ms"),
                 "end_ms": s.get("end_ms"),
                 "text": text,
+                "speaker": s.get("speaker", "SPEAKER_00"),
             }
         )
     data = {

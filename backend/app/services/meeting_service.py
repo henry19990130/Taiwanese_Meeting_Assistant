@@ -91,6 +91,7 @@ def create_meeting(
     created_by=None,
     asr_language: str = asr_models.DEFAULT_LANGUAGE,
     asr_dialect: str | None = None,
+    asr_diarization: bool = True,
 ) -> dict:
     asr_language = asr_models.normalize_language(asr_language)
     asr_dialect = asr_models.normalize_dialect(asr_dialect) if asr_language == "hak" else None
@@ -114,7 +115,7 @@ def create_meeting(
         uploads.unlink_inside(config.AUDIO_DIR, str(audio_path))
         raise
 
-    _worker.submit(_run_transcription, meeting_id, asr_language, asr_dialect)
+    _worker.submit(_run_transcription, meeting_id, asr_language, asr_dialect, asr_diarization)
     return meeting
 
 
@@ -174,7 +175,7 @@ def _save_upload(src: BinaryIO, dest: Path) -> None:
 
 
 def _run_transcription(meeting_id: uuid.UUID, language: str = asr_models.DEFAULT_LANGUAGE,
-                       dialect: str | None = None) -> None:
+                       dialect: str | None = None, asr_diarization: bool = True) -> None:
     try:
         with get_conn() as conn:
             meeting = meetings.update_status(conn, meeting_id, "transcribing")
@@ -182,7 +183,7 @@ def _run_transcription(meeting_id: uuid.UUID, language: str = asr_models.DEFAULT
             return
 
         asr = get_asr_service()
-        segments = asr.transcribe(meeting["audio_path"], language, dialect)
+        segments = asr.transcribe(meeting["audio_path"], language, dialect, enable_diarization=asr_diarization)
         model_name = asr.model_name
         asr_info = asr.info()
         if not segments:

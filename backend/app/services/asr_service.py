@@ -8,6 +8,7 @@ import time
 from app import config
 
 from taigi_asr.audio import AudioConverter
+from taigi_asr.diarization.base import get_diarization_engine
 from taigi_asr.engines.fake import FakeEngine
 from taigi_asr.segments import TimestampedSegment
 
@@ -41,6 +42,48 @@ def is_hallucination(text: str, speech_seconds: float) -> bool:
         return False
     norm = _normalize(text)
     return norm in {_normalize(h) for h in _HALLUCINATIONS}
+
+
+def align_speaker_to_groups(
+    groups: list[list[tuple[float, float]]],
+    speaker_segments: list,
+) -> list[str]:
+    """將語者分段對齊到 VAD 群組
+
+    Args:
+        groups: VAD 合併後的群組，每個群組包含多個 (start, end) 區段
+        speaker_segments: pyannote 輸出的 SpeakerSegment 列表
+
+    Returns:
+        每個群組對應的語者標籤列表
+    """
+    if not speaker_segments:
+        return ["SPEAKER_00"] * len(groups)
+
+    group_speakers = []
+    for group in groups:
+        # 計算群組的時間範圍
+        group_start = group[0][0]
+        group_end = group[-1][1]
+        group_mid = (group_start + group_end) / 2
+
+        # 找到與群組重疊最多的語者分段
+        best_speaker = "SPEAKER_00"
+        max_overlap = 0.0
+
+        for seg in speaker_segments:
+            # 計算重疊時長
+            overlap_start = max(group_start, seg.start)
+            overlap_end = min(group_end, seg.end)
+            overlap = max(0.0, overlap_end - overlap_start)
+
+            if overlap > max_overlap:
+                max_overlap = overlap
+                best_speaker = seg.speaker
+
+        group_speakers.append(best_speaker)
+
+    return group_speakers
 
 
 _s2tw = None
@@ -100,10 +143,22 @@ class ASRService:
             out["dialect_label"] = HAKKA_DIALECTS[self.last_dialect][0]
         return out
 
-    def transcribe(self, audio_path: str, language: str | None = None, dialect: str | None = None) -> list[dict]:
+    def transcribe(
+        self,
+        audio_path: str,
+        language: str | None = None,
+        dialect: str | None = None,
+        enable_diarization: bool | None = None,
+        diarization_engine: str | None = None,
+    ) -> list[dict]:
         language = asr_models.normalize_language(language)
         dialect = asr_models.normalize_dialect(dialect) if language == "hak" else None
         self.last_language, self.last_dialect = language, dialect
+
+        if enable_diarization is None:
+            enable_diarization = config.ASR_DIARIZATION
+        if diarization_engine is None:
+            diarization_engine = config.ASR_DIARIZATION_ENGINE
 
         with self._lock:
             if self.engine_name == "fake":
@@ -113,7 +168,8 @@ class ASRService:
                 segments = engine.transcribe(audio_path)
                 return [
                     {"segment_index": i, "start_ms": int(s.start_time * 1000),
-                     "end_ms": int(s.end_time * 1000), "text": to_traditional(s.text)}
+                     "end_ms": int(s.end_time * 1000), "text": to_traditional(s.text),
+                     "speaker": "SPEAKER_00"}
                     for i, s in enumerate(segments)
                 ]
 
@@ -142,6 +198,21 @@ class ASRService:
             if not groups:
                 return []
 
+            # 語者辨識（在 ASR 之前執行，使用完整音檔）
+            speaker_labels = ["SPEAKER_00"] * len(groups)
+            if enable_diarization:
+                log.info("ASR: 啟用語者辨識（引擎：%s）", diarization_engine)
+                diarization = get_diarization_engine(engine_name=diarization_engine)
+                diarization.load()
+                try:
+                    speaker_segments = diarization.diarize(wav_path)
+                    speaker_labels = align_speaker_to_groups(groups, speaker_segments)
+                    log.info("ASR: 語者辨識完成，偵測到 %d 位講者",
+                             len(set(speaker_labels)))
+                finally:
+                    diarization.unload()
+                    log.info("ASR: 語者辨識模型已卸載")
+
             clips = [segmenter.group_audio(audio, sr, g) for g in groups]
             engine = asr_models.build_engine(language, dialect)
             self._active = engine
@@ -160,7 +231,7 @@ class ASRService:
 
         out = []
         dropped = 0
-        for g, clip, text in zip(groups, clips, texts):
+        for g, clip, text, speaker in zip(groups, clips, texts, speaker_labels):
             start, end = g[0][0], g[-1][1]
             if is_hallucination(text, len(clip) / sr):
                 dropped += 1
@@ -173,6 +244,7 @@ class ASRService:
                     "start_ms": int(round(start * 1000)),
                     "end_ms": int(round(end * 1000)),
                     "text": text,
+                    "speaker": speaker,
                 })
         if dropped:
             log.info("ASR: 去掉 %d 段短片段的常見幻覺（例如「阿嬤」「啊」）", dropped)

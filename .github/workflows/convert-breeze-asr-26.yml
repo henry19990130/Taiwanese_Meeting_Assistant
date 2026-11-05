@@ -1,0 +1,144 @@
+name: Convert Breeze-ASR-26 to WhisperKit Core ML
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_version:
+        description: 'Model version to convert'
+        required: true
+        default: 'MediaTek-Research/Breeze-ASR-26'
+        type: choice
+        options:
+          - MediaTek-Research/Breeze-ASR-26
+          - MediaTek-Research/Breeze-ASR-25
+      quantize:
+        description: 'Quantization level'
+        required: true
+        default: '4bit'
+        type: choice
+        options:
+          - none
+          - 4bit
+          - 8bit
+      hf_repo:
+        description: 'Hugging Face repo to upload to (e.g., username/breeze-asr-26-whisperkit-coreml)'
+        required: false
+        default: ''
+        type: string
+      hf_private:
+        description: 'Make HF repo private'
+        required: false
+        default: 'false'
+        type: boolean
+
+jobs:
+  convert:
+    name: Convert to Core ML
+    runs-on: macos-latest
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install whisperkittools coremltools torch transformers huggingface_hub tqdm
+
+      - name: Check GPU
+        run: |
+          python -c "
+          import torch
+          print(f'MPS available: {torch.backends.mps.is_available()}')
+          if torch.backends.mps.is_available():
+              print('Using Apple Silicon GPU (MPS)')
+          else:
+              print('No GPU - using CPU (will be slow)')
+          "
+
+      - name: Convert model
+        env:
+          MODEL_REPO_ID: ${{ github.event.inputs.model_version }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          python -m whisperkittools.scripts.generate_model \
+            --model-version "${MODEL_REPO_ID}" \
+            --output-dir ./breeze-asr-coreml \
+            ${{ github.event.inputs.quantize != 'none' && '--generate-quantized-variants' || '' }}
+
+      - name: Verify output
+        run: |
+          python scripts/convert_breeze_asr_26.py --verify-only --output-dir ./breeze-asr-coreml
+
+      - name: Upload to Hugging Face Hub
+        if: github.event.inputs.hf_repo != ''
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_REPO: ${{ github.event.inputs.hf_repo }}
+          HF_PRIVATE: ${{ github.event.inputs.hf_private }}
+        run: |
+          python scripts/convert_breeze_asr_26.py --verify-only --output-dir ./breeze-asr-coreml --hf-repo "${HF_REPO}" --hf-token "${HF_TOKEN}" --hf-private "${HF_PRIVATE}"
+
+      - name: Create release archive
+        run: |
+          cd breeze-asr-coreml
+          zip -r ../breeze-asr-coreml-${{ github.event.inputs.model_version | replace('/', '-') }}.zip .
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: breeze-asr-coreml-${{ github.event.inputs.model_version | replace('/', '-') }}
+          path: breeze-asr-coreml-*.zip
+          retention-days: 30
+
+      - name: Create GitHub Release (on success)
+        if: success()
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: breeze-asr-coreml-${{ github.event.inputs.model_version | replace('/', '-') }}-${{ github.run_number }}
+          name: Breeze-ASR Core ML ${{ github.event.inputs.model_version }} (WhisperKit)
+          files: breeze-asr-coreml-*.zip
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  test-ios:
+    name: Test iOS Build
+    needs: convert
+    runs-on: macos-latest
+    timeout-minutes: 60
+    if: github.repository == 'your-org/Taiwanese_Meeting_Assistant'
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download model artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: breeze-asr-coreml-${{ github.event.inputs.model_version | replace('/', '-') }}
+          path: ios/App/Models
+
+      - name: Extract model
+        run: |
+          cd ios/App/Models
+          unzip -o breeze-asr-coreml-*.zip -d breeze-asr-coreml
+
+      - name: Build iOS App
+        run: |
+          cd ios/App/CapApp-SPM
+          xcodebuild -scheme CapApp-SPM -destination generic/platform=iOS -configuration Debug build
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: iOS-App-Build
+          path: ios/App/CapApp-SPM/.build
+          retention-days: 7

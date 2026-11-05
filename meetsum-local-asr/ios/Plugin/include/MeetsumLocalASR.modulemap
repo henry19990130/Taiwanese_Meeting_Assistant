@@ -1,0 +1,4 @@
+module MeetsumLocalASR {
+    header "MeetsumLocalASRPlugin.h"
+    export *
+}

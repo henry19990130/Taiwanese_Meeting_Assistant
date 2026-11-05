@@ -50,6 +50,10 @@ ASR_MERGE_MAX_S = float(os.getenv("ASR_MERGE_MAX_S", "20"))
 ASR_MERGE_SHORT_S = float(os.getenv("ASR_MERGE_SHORT_S", "3.0"))
 ASR_DROP_QUIET_DB = float(os.getenv("ASR_DROP_QUIET_DB", "35"))
 
+# 語者辨識
+ASR_DIARIZATION = os.getenv("ASR_DIARIZATION", "true").strip().lower() in ("1", "true", "yes")
+ASR_DIARIZATION_ENGINE = os.getenv("ASR_DIARIZATION_ENGINE", "pyannote").lower()
+
 AUDIO_DIR = Path(os.getenv("AUDIO_DIR", str(BACKEND_DIR / "storage" / "audio")))
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "500"))

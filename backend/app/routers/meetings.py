@@ -51,6 +51,7 @@ def upload_meeting(
     end_time: str | None = Form(None),
     asr_language: str = Form("zh"),
     hakka_dialect: str | None = Form(None),
+    asr_diarization: bool = Form(True),
     user: dict = Depends(get_current_user),
 ) -> dict:
     name = meeting_name.strip()
@@ -85,6 +86,7 @@ def upload_meeting(
                 audio_file=audio.file, original_filename=audio.filename or "",
                 created_by=user["id"],
                 asr_language=asr_language, asr_dialect=hakka_dialect,
+                asr_diarization=asr_diarization,
             )
         else:
             meeting = svc.create_meeting_from_transcript(
@@ -106,6 +108,7 @@ def upload_meeting(
         "created_at": _iso(meeting["created_at"]),
         "status_url": _status_url(meeting["id"]),
         "asr_language": asr_language if has_audio else None,
+        "asr_diarization": asr_diarization if has_audio else None,
     }
 
 

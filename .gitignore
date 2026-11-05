@@ -11,6 +11,7 @@ ios/App/App/public/
 ios/App/Pods/
 ios/App/App.xcworkspace/
 ios/App/build/
+ios/App/Models/
 *.ipa
 *.dSYM
 *.xcarchive

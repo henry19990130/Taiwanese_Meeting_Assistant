@@ -10,6 +10,12 @@ const state = {
   pollTimer: null,
   // 通知追蹤：避免重複發送同一會議的完成通知
   notifiedMeetings: new Set(),
+  // ASR 模式：'cloud' (雲端) 或 'local' (本地)
+  asrMode: 'cloud',
+  // 本地 ASR 狀態
+  localAsrJobId: null,
+  localAsrProgress: 0,
+  localAsrListener: null,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -292,6 +298,17 @@ const ASR_LANG_INFO = {
   hak: { label: "客語", model: "whisper-large-v3-taiwanese-hakka" },
   en:  { label: "英文", model: "Qwen3-ASR-1.7B" },
 };
+
+// 本地 ASR 模型選項
+const LOCAL_ASR_MODELS = [
+  { value: "tiny", label: "Tiny (~75 MB)", size_mb: 75 },
+  { value: "base", label: "Base (~142 MB)", size_mb: 142 },
+  { value: "small", label: "Small (~466 MB)", size_mb: 466 },
+  { value: "medium", label: "Medium (~1.5 GB)", size_mb: 1500 },
+  { value: "large-v3", label: "Large-v3 (~2.9 GB)", size_mb: 2900 },
+  { value: "large-v3-turbo", label: "Large-v3 Turbo (~1.6 GB) ⭐ 推薦", size_mb: 1600 },
+];
+
 function setAsrLanguage(lang) {
   const form = $("uploadForm");
   const input = form.querySelector(`input[name=asr_language][value=${lang}]`) || form.querySelector("input[name=asr_language]");
@@ -304,10 +321,475 @@ for (const r of document.querySelectorAll("input[name=asr_language]")) {
   r.addEventListener("change", () => setAsrLanguage(r.value));
 }
 
+// ASR 模式切換處理
+function setAsrMode(mode) {
+  state.asrMode = mode;
+  const form = $("uploadForm");
+  const cloudRadio = form.querySelector("input[name=asr_mode][value=cloud]");
+  const localRadio = form.querySelector("input[name=asr_mode][value=local]");
+  if (cloudRadio) cloudRadio.checked = mode === "cloud";
+  if (localRadio) localRadio.checked = mode === "local";
+
+  // 顯示/隱藏本地模式特有選項
+  const isLocal = mode === "local";
+  const localOptions = document.getElementById("localAsrOptions");
+  if (localOptions) localOptions.hidden = !isLocal;
+
+  // 更新提示文字
+  const hint = $("asrModeHint");
+  if (hint) {
+    hint.textContent = isLocal
+      ? "本地模式：在 iPhone 上離線辨識，隱私優先，需先下載模型"
+      : "雲端模式：上傳至伺服器辨識，支援多語言與聲紋識別";
+  }
+
+  // 如果是本地模式且在原生平台，檢查裝置能力
+  if (isLocal && CapacitorBridge.isNative()) {
+    checkLocalAsrCapabilities();
+  }
+}
+
+// 監聽模式切換
+for (const r of document.querySelectorAll("input[name=asr_mode]")) {
+  r.addEventListener("change", () => setAsrMode(r.value));
+}
+
+// 建立並插入本地 ASR 選項 UI
+function initLocalAsrOptions() {
+  const asrLangField = $("asrLangField");
+  if (asrLangField && !$("localAsrOptions")) {
+    const localOptions = createLocalAsrOptions();
+    asrLangField.parentNode.insertBefore(localOptions, asrLangField.nextSibling);
+  }
+}
+
+// 在 DOM 準備好時初始化本地 ASR 選項
+document.addEventListener('DOMContentLoaded', () => {
+  initLocalAsrOptions();
+});
+
+// 檢查本地 ASR 裝置能力
+async function checkLocalAsrCapabilities() {
+  try {
+    const { MeetsumLocalASR } = await import('../../meetsum-local-asr/src/index.ts');
+    const capabilities = await MeetsumLocalASR.getDeviceCapabilities();
+    console.log('[Local ASR] 裝置能力:', capabilities);
+
+    // 更新模型選擇器的推薦標記
+    updateLocalModelRecommendations(capabilities.recommendedModelSize);
+
+    // 如果模型未下載，提示下載
+    const recommendedModel = LOCAL_ASR_MODELS.find(m => m.value === capabilities.recommendedModelSize);
+    if (recommendedModel) {
+      const available = await MeetsumLocalASR.isModelAvailable({ modelSize: recommendedModel.value });
+      if (!available.available) {
+        showInfo($("uploadError"), `建議下載 ${recommendedModel.label} 模型以獲得最佳效能`, false);
+      }
+    }
+  } catch (err) {
+    console.warn('[Local ASR] 無法檢查裝置能力:', err);
+  }
+}
+
+// 更新本地模型推薦標記
+function updateLocalModelRecommendations(recommended) {
+  const select = $("localModelSelect");
+  if (!select) return;
+
+  for (const option of select.options) {
+    option.textContent = option.textContent.replace(' ⭐ 推薦', '');
+    if (option.value === recommended) {
+      option.textContent += ' ⭐ 推薦';
+    }
+  }
+}
+
+// 建立本地 ASR 選項 UI
+function createLocalAsrOptions() {
+  const container = el("div", "local-asr-options");
+  container.id = "localAsrOptions";
+  container.hidden = state.asrMode !== "local";
+
+  // 模型選擇
+  const modelGroup = el("div", "form-group");
+  const modelLabel = el("label", null, "模型大小");
+  const modelSelect = el("select", "line-input");
+  modelSelect.id = "localModelSelect";
+  modelSelect.name = "local_model_size";
+  for (const model of LOCAL_ASR_MODELS) {
+    const opt = el("option", null, model.label);
+    opt.value = model.value;
+    if (model.value === "large-v3-turbo") opt.selected = true;
+    modelSelect.append(opt);
+  }
+  modelGroup.append(modelLabel, modelSelect);
+
+  // 量化等級選擇
+  const quantGroup = el("div", "form-group");
+  const quantLabel = el("label", null, "量化等級");
+  const quantSelect = el("select", "line-input");
+  quantSelect.id = "localQuantSelect";
+  quantSelect.name = "local_quantization";
+  const quantOptions = [
+    { value: "q4_k", label: "Q4_K (平衡，推薦)" },
+    { value: "q5_k", label: "Q5_K (較高品質)" },
+    { value: "q8_0", label: "Q8_0 (高品質)" },
+    { value: "fp16", label: "FP16 (無量化，體積大)" },
+  ];
+  for (const q of quantOptions) {
+    const opt = el("option", null, q.label);
+    opt.value = q.value;
+    if (q.value === "q4_k") opt.selected = true;
+    quantSelect.append(opt);
+  }
+  quantGroup.append(quantLabel, quantSelect);
+
+  // 講者辨識開關
+  const diarGroup = el("div", "form-group");
+  const diarLabel = el("label", "choice");
+  const diarCheckbox = el("input", null, null);
+  diarCheckbox.type = "checkbox";
+  diarCheckbox.name = "local_diarization";
+  diarCheckbox.checked = true;
+  diarCheckbox.id = "localDiarization";
+  diarLabel.append(diarCheckbox, "啟用講者辨識 (聲紋識別)");
+  diarGroup.append(diarLabel);
+
+  // VAD 開關
+  const vadGroup = el("div", "form-group");
+  const vadLabel = el("label", "choice");
+  const vadCheckbox = el("input", null, null);
+  vadCheckbox.type = "checkbox";
+  vadCheckbox.name = "local_vad";
+  vadCheckbox.checked = true;
+  vadCheckbox.id = "localVad";
+  vadLabel.append(vadCheckbox, "使用語音活動偵測 (VAD) 過濾靜音");
+  vadGroup.append(vadLabel);
+
+  // 模型管理按鈕
+  const actionsGroup = el("div", "form-group");
+  const actionsRow = el("div", "button-row");
+  const downloadBtn = el("button", "btn ghost small", "下載/更新模型");
+  downloadBtn.type = "button";
+  downloadBtn.id = "localModelDownloadBtn";
+  const checkBtn = el("button", "btn ghost small", "檢查模型狀態");
+  checkBtn.type = "button";
+  checkBtn.id = "localModelCheckBtn";
+  const clearBtn = el("button", "btn ghost small", "清除快取");
+  clearBtn.type = "button";
+  clearBtn.id = "localModelClearBtn";
+  actionsRow.append(downloadBtn, checkBtn, clearBtn);
+  actionsGroup.append(actionsRow);
+
+  // 進度顯示區
+  const progressGroup = el("div", "form-group");
+  progressGroup.id = "localModelProgressGroup";
+  progressGroup.hidden = true;
+  const progressLabel = el("label", null, "下載進度");
+  const progressBar = el("div", "progress-bar");
+  const progressFill = el("div", "progress-fill");
+  progressFill.id = "localModelProgressFill";
+  progressBar.append(progressFill);
+  const progressText = el("span", "progress-text", "等待開始...");
+  progressText.id = "localModelProgressText";
+  progressGroup.append(progressLabel, progressBar, progressText);
+
+  container.append(modelGroup, quantGroup, diarGroup, vadGroup, actionsGroup, progressGroup);
+
+  // 綁定事件
+  downloadBtn.addEventListener("click", handleLocalModelDownload);
+  checkBtn.addEventListener("click", handleLocalModelCheck);
+  clearBtn.addEventListener("click", handleLocalModelClear);
+
+  return container;
+}
+
+// 處理本地模型下載
+async function handleLocalModelDownload() {
+  if (!CapacitorBridge.isNative()) {
+    showError($("uploadError"), "本地模式僅支援 iOS 實機");
+    return;
+  }
+
+  const modelSize = $("localModelSelect").value;
+  const quantization = $("localQuantSelect").value;
+
+  const progressGroup = $("localModelProgressGroup");
+  const progressFill = $("localModelProgressFill");
+  const progressText = $("localModelProgressText");
+  const downloadBtn = $("localModelDownloadBtn");
+
+  progressGroup.hidden = false;
+  downloadBtn.disabled = true;
+  downloadBtn.textContent = "下載中...";
+  progressFill.style.width = "0%";
+  progressText.textContent = "準備下載...";
+
+  try {
+    const { MeetsumLocalASR } = await import('../../meetsum-local-asr/src/index.ts');
+
+    // 監聽下載進度
+    const listener = await MeetsumLocalASR.addListener('transcriptionProgress', (progress) => {
+      if (progress.modelName !== `${modelSize}_${quantization}`) return;
+      const pct = progress.progress;
+      progressFill.style.width = `${pct}%`;
+      progressText.textContent = `${progress.status === 'downloading' ? '下載中' : progress.status === 'verifying' ? '驗證中' : progress.status === 'completed' ? '完成' : '失敗'} ${pct}%`;
+      if (progress.bytesDownloaded && progress.totalBytes) {
+        const mbDown = (progress.bytesDownloaded / 1024 / 1024).toFixed(1);
+        const mbTotal = (progress.totalBytes / 1024 / 1024).toFixed(1);
+        progressText.textContent += ` (${mbDown} / ${mbTotal} MB)`;
+      }
+      if (progress.error) {
+        progressText.textContent += ` - ${progress.error}`;
+      }
+    });
+
+    downloadBtn.disabled = false;
+    downloadBtn.textContent = "取消下載";
+
+    const result = await MeetsumLocalASR.downloadModel({ modelSize, quantization });
+
+    listener.remove();
+
+    if (result.success) {
+      progressFill.style.width = "100%";
+      progressText.textContent = "下載完成！";
+      downloadBtn.textContent = "下載/更新模型";
+      downloadBtn.disabled = false;
+      showError($("uploadError"), "");
+    } else {
+      progressText.textContent = `失敗: ${result.error}`;
+      downloadBtn.textContent = "下載/更新模型";
+      downloadBtn.disabled = false;
+      showError($("uploadError"), result.error || "下載失敗");
+    }
+  } catch (err) {
+    progressText.textContent = `錯誤: ${err.message}`;
+    downloadBtn.textContent = "下載/更新模型";
+    downloadBtn.disabled = false;
+    showError($("uploadError"), err.message);
+  }
+}
+
+// 檢查本地模型狀態
+async function handleLocalModelCheck() {
+  if (!CapacitorBridge.isNative()) {
+    showError($("uploadError"), "本地模式僅支援 iOS 實機");
+    return;
+  }
+
+  try {
+    const { MeetsumLocalASR } = await import('../../meetsum-local-asr/src/index.ts');
+    const { models } = await MeetsumLocalASR.getAvailableModels();
+
+    let msg = "模型狀態：\n";
+    for (const m of models) {
+      msg += `${m.name} (${m.quantization}): ${m.downloaded ? '✓ 已下載' : '✗ 未下載'} (${m.size_mb} MB)\n`;
+    }
+    alert(msg);
+  } catch (err) {
+    showError($("uploadError"), err.message);
+  }
+}
+
+// 清除本地模型快取
+async function handleLocalModelClear() {
+  if (!CapacitorBridge.isNative()) {
+    showError($("uploadError"), "本地模式僅支援 iOS 實機");
+    return;
+  }
+
+  if (!window.confirm("確定要清除所有暫存檔案嗎？這不會刪除已下載的模型。")) return;
+
+  try {
+    const { MeetsumLocalASR } = await import('../../meetsum-local-asr/src/index.ts');
+    await MeetsumLocalASR.clearCache();
+    showError($("uploadError"), "快取已清除", false);
+  } catch (err) {
+    showError($("uploadError"), err.message);
+  }
+}
+
+// 處理本地 ASR 上傳
+async function handleLocalTranscription(form) {
+  if (!CapacitorBridge.isNative()) {
+    showError($("uploadError"), "本地模式僅支援 iOS 實機，請切換至雲端模式或使用 iOS App");
+    return;
+  }
+
+  const audioFile = form.get("audio");
+  if (!audioFile) {
+    showError($("uploadError"), "請選擇音檔");
+    return;
+  }
+
+  const language = form.get("asr_language") || "zh";
+  const enableDiarization = form.get("local_diarization") === "on" || form.get("local_diarization") === "true";
+  const modelSize = form.get("local_model_size") || "large-v3-turbo";
+  const quantization = form.get("local_quantization") || "q4_k";
+  const useVad = form.get("local_vad") === "on" || form.get("local_vad") === "true";
+
+  // 先將音檔存到本地檔案系統
+  showError($("uploadError"), "準備音檔...");
+  $("uploadBtn").disabled = true;
+  $("uploadBtn").textContent = "處理中…";
+
+  try {
+    // 讀取檔案並轉為 base64
+    const base64 = await fileToBase64(audioFile);
+    const fileName = `meeting_${Date.now()}.${audioFile.name.split('.').pop()}`;
+
+    // 寫入檔案系統
+    const { uri } = await CapacitorBridge.writeFile(fileName, base64, 'Documents');
+
+    // 開始本地轉錄
+    const { MeetsumLocalASR } = await import('../../meetsum-local-asr/src/index.ts');
+
+    const { jobId } = await MeetsumLocalASR.transcribe({
+      audioPath: uri,
+      language,
+      enableDiarization,
+      modelSize,
+      quantization,
+      useVad,
+    });
+
+    state.localAsrJobId = jobId;
+    state.meetingId = `local_${jobId}`;
+
+    // 設定會議標題
+    const meetingName = form.get("meeting_name") || `本地會議 ${new Date().toLocaleString()}`;
+    $("meetingTitle").textContent = meetingName;
+    $("stepTranscribing").textContent = `本地語音辨識 (${modelSize})`;
+
+    // 隱藏上傳卡片，顯示進度
+    $("uploadCard").hidden = true;
+    $("progressCard").hidden = false;
+    renderStatus({ status: "transcribing", error: null });
+
+    // 監聽轉錄進度
+    state.localAsrListener = await MeetsumLocalASR.addListener('transcriptionProgress', (progress) => {
+      if (progress.modelName === 'transcription') {
+        state.localAsrProgress = progress.progress;
+        // 更新進度顯示
+        updateLocalAsrProgress(progress);
+      }
+    });
+
+    // 監聽完成事件
+    const completeListener = await MeetsumLocalASR.addListener('transcriptionComplete', async (result) => {
+      state.localAsrListener?.remove();
+      completeListener.remove();
+      await handleLocalAsrComplete(result);
+    });
+
+    // 監聽錯誤事件
+    const errorListener = await MeetsumLocalASR.addListener('transcriptionError', async (error) => {
+      state.localAsrListener?.remove();
+      completeListener.remove();
+      errorListener.remove();
+      await handleLocalAsrError(error.message);
+    });
+
+  } catch (err) {
+    showError($("uploadError"), err.message);
+    $("uploadBtn").disabled = false;
+    $("uploadBtn").textContent = "開始整理";
+  }
+}
+
+// 更新本地 ASR 進度顯示
+function updateLocalAsrProgress(progress) {
+  // 更新波形動畫或進度文字
+  const statusText = $("statusText");
+  if (statusText) {
+    statusText.textContent = `本地辨識中... ${progress.progress}% (${progress.status})`;
+  }
+}
+
+// 處理本地 ASR 完成
+async function handleLocalAsrComplete(result) {
+  // 轉換結果格式以符合現有 UI
+  const transcript = {
+    version: 1,
+    meeting_id: state.meetingId,
+    asr_model: result.model_used || "whisperkit-local",
+    segment_count: result.segments.length,
+    segments: result.segments.map((seg, i) => ({
+      segment_id: seg.segment_id || `S${String(i + 1).padStart(4, '0')}`,
+      segment_index: i,
+      start_ms: seg.start_ms,
+      end_ms: seg.end_ms,
+      text: seg.text,
+      speaker: seg.speaker || "SPEAKER_00",
+    })),
+    asr_info: {
+      mode: "local",
+      model: result.model_used,
+      language: result.language,
+      duration_ms: result.duration_ms,
+    },
+  };
+
+  state.transcript = transcript;
+  state.status = "reviewing"; // 本地模式直接進入校對階段
+
+  renderTranscript();
+  renderStatus({ status: "transcribed", error: null });
+  $("transcriptCard").hidden = false;
+
+  // 更新步驟顯示
+  for (const li of $("steps").children) {
+    const step = li.dataset.step;
+    if (["uploaded", "transcribing"].includes(step)) li.className = "done";
+    else if (step === "proofreading") li.className = "active user";
+    else li.className = "";
+  }
+
+  showError($("uploadError"), "");
+}
+
+// 處理本地 ASR 錯誤
+async function handleLocalAsrError(message) {
+  renderStatus({ status: "failed", error: { message, stage: "transcribing" } });
+  showError($("jobError"), `本地辨識失敗：${message}`);
+  $("uploadBtn").disabled = false;
+  $("uploadBtn").textContent = "開始整理";
+}
+
+// 檔案轉 base64
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result.split(',')[1];
+      resolve(base64);
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
+
+// 顯示資訊訊息 (非錯誤)
+function showInfo(el, msg, isError = true) {
+  el.textContent = msg;
+  el.hidden = !msg;
+  el.style.color = isError ? 'var(--error)' : 'var(--success)';
+  setTimeout(() => { if (!isError) el.hidden = true; }, 5000);
+}
+
 $("uploadForm").addEventListener("submit", async (e) => {
   e.preventDefault();
   await CapacitorBridge.hapticImpact('medium');
   const form = new FormData(e.target);
+
+  // 根據 ASR 模式分流處理
+  if (state.asrMode === "local") {
+    await handleLocalTranscription(form);
+    return;
+  }
+
+  // 雲端模式：原有邏輯
   for (const k of ["start_time", "end_time"]) if (!form.get(k)) form.delete(k);
   const source = form.get("source");
   form.delete("source");
@@ -464,10 +946,19 @@ function renderTranscript() {
   for (const seg of state.transcript.segments) {
     const li = el("li", editable ? "editable" : null);
     li.id = `seg-${seg.segment_id}`;
+
+    // 講者標籤
+    const speaker = seg.speaker || "SPEAKER_00";
+    const speakerLabel = speaker.replace("SPEAKER_", "講者 ");
+    const speakerBadge = el("span", `speaker-badge speaker-${speaker}`, `👤 ${speakerLabel}`);
+    speakerBadge.dataset.speaker = speaker;
+    speakerBadge.title = `點擊篩選 ${speakerLabel}`;
+    speakerBadge.addEventListener("click", () => filterBySpeaker(speaker));
+
     const range = seg.start_ms == null ? "—" : `${fmtMs(seg.start_ms)}–${fmtMs(seg.end_ms)}`;
     const time = el("span", "time", range);
     time.append(el("span", "sid", seg.segment_id));
-    li.append(time, segmentText(seg, bySeg[seg.segment_id] || []));
+    li.append(time, speakerBadge, segmentText(seg, bySeg[seg.segment_id] || []));
     if (editable) {
       const b = el("button", "seg-edit-btn", "✎");
       b.type = "button";
@@ -480,6 +971,358 @@ function renderTranscript() {
   list.scrollTop = keep;
   $("segmentCount").textContent = `（${state.transcript.segment_count} 段）`;
   markCurrent();
+
+  // 更新講者面板
+  updateSpeakerPanel();
+}
+
+// ===== 講者管理功能 =====
+
+// 目前的講者篩選狀態
+let speakerFilter = null; // null = 顯示全部，否則為特定講者 ID
+
+function updateSpeakerPanel() {
+  if (!state.transcript) return;
+
+  // 統計每位講者的段落數
+  const speakerCounts = {};
+  for (const seg of state.transcript.segments) {
+    const s = seg.speaker || "SPEAKER_00";
+    speakerCounts[s] = (speakerCounts[s] || 0) + 1;
+  }
+  const speakers = Object.keys(speakerCounts).sort();
+
+  // 建立或更新講者面板
+  let panel = $("speakerPanel");
+  if (!panel) {
+    panel = createSpeakerPanel();
+    // 插入到 transcriptCard 的開頭
+    const transcriptCard = $("transcriptCard");
+    if (transcriptCard) {
+      transcriptCard.insertBefore(panel, transcriptCard.firstChild);
+    }
+  }
+
+  // 更新講者列表
+  const list = panel.querySelector(".speaker-list");
+  if (list) {
+    list.replaceChildren();
+    for (const speaker of speakers) {
+      const count = speakerCounts[speaker];
+      const item = createSpeakerItem(speaker, count);
+      list.append(item);
+    }
+  }
+
+  // 更新圖例
+  const legend = panel.querySelector(".speaker-legend");
+  if (legend) {
+    legend.replaceChildren();
+    for (const speaker of speakers) {
+      const count = speakerCounts[speaker];
+      const item = el("span", "speaker-legend-item");
+      const colorDot = el("span", "speaker-color");
+      colorDot.style.background = getSpeakerColor(speaker);
+      item.append(colorDot, speaker.replace("SPEAKER_", "講者 "), el("span", "speaker-count", count));
+      legend.append(item);
+    }
+  }
+}
+
+function createSpeakerPanel() {
+  const panel = el("div", "speaker-panel");
+  panel.id = "speakerPanel";
+
+  const head = el("div", "speaker-panel-head");
+  const title = el("h3", null, "講者");
+  const clearFilter = el("button", "btn ghost small", "顯示全部");
+  clearFilter.type = "button";
+  clearFilter.addEventListener("click", () => filterBySpeaker(null));
+  head.append(title, clearFilter);
+
+  const list = el("div", "speaker-list");
+  list.setAttribute("role", "listbox");
+  list.setAttribute("aria-label", "講者列表");
+
+  const actions = el("div", "speaker-actions");
+  const renameBtn = el("button", "btn ghost small", "重新命名");
+  renameBtn.type = "button";
+  renameBtn.addEventListener("click", () => openSpeakerRenameModal());
+  const mergeBtn = el("button", "btn ghost small", "合併講者");
+  mergeBtn.type = "button";
+  mergeBtn.addEventListener("click", () => openSpeakerMergeModal());
+  actions.append(renameBtn, mergeBtn);
+
+  const filterWrap = el("div", "speaker-filter");
+  const filterCheckbox = el("input", null, null);
+  filterCheckbox.type = "checkbox";
+  filterCheckbox.id = "speakerFilterEnabled";
+  filterCheckbox.addEventListener("change", () => {
+    speakerFilter = filterCheckbox.checked ? (speakerFilter || Object.keys(getSpeakerCounts())[0] || null) : null;
+    filterCheckbox.checked = !!speakerFilter;
+    applySpeakerFilter();
+  });
+  const filterLabel = el("label", null, "啟用講者篩選");
+  filterLabel.setAttribute("for", "speakerFilterEnabled");
+  filterWrap.append(filterCheckbox, filterLabel);
+  actions.append(filterWrap);
+
+  const legend = el("div", "speaker-legend");
+
+  panel.append(head, list, actions, legend);
+  return panel;
+}
+
+function createSpeakerItem(speaker, count) {
+  const item = el("div", "speaker-item");
+  item.dataset.speaker = speaker;
+  item.setAttribute("role", "option");
+  item.setAttribute("aria-selected", String(speaker === speakerFilter));
+
+  const colorDot = el("span", "speaker-color");
+  colorDot.style.background = getSpeakerColor(speaker);
+
+  const name = el("span", "speaker-name", speaker.replace("SPEAKER_", "講者 "));
+  const countEl = el("span", "speaker-count", count);
+
+  item.append(colorDot, name, countEl);
+  item.addEventListener("click", () => filterBySpeaker(speaker === speakerFilter ? null : speaker));
+  return item;
+}
+
+function getSpeakerCounts() {
+  if (!state.transcript) return {};
+  const counts = {};
+  for (const seg of state.transcript.segments) {
+    const s = seg.speaker || "SPEAKER_00";
+    counts[s] = (counts[s] || 0) + 1;
+  }
+  return counts;
+}
+
+function getSpeakerColor(speaker) {
+  // 從 CSS 類別名稱對應顏色
+  const colors = {
+    "SPEAKER_00": "#1565c0",
+    "SPEAKER_01": "#c62828",
+    "SPEAKER_02": "#2e7d32",
+    "SPEAKER_03": "#ef6c00",
+    "SPEAKER_04": "#7b1fa2",
+    "SPEAKER_05": "#00695c",
+    "SPEAKER_06": "#bf360c",
+    "SPEAKER_07": "#4527a0",
+    "SPEAKER_08": "#283593",
+    "SPEAKER_09": "#558b2f",
+    "SPEAKER_10": "#f57f17",
+    "SPEAKER_11": "#616161",
+    "SPEAKER_12": "#37474f",
+    "SPEAKER_13": "#ad1457",
+    "SPEAKER_14": "#006064",
+    "SPEAKER_15": "#e65100",
+  };
+  return colors[speaker] || "#616161";
+}
+
+function filterBySpeaker(speaker) {
+  speakerFilter = speaker;
+  applySpeakerFilter();
+  updateSpeakerPanelSelection();
+}
+
+function applySpeakerFilter() {
+  const list = $("transcriptList");
+  if (!list) return;
+
+  for (const li of list.children) {
+    const badge = li.querySelector(".speaker-badge");
+    if (!badge) continue;
+    const segSpeaker = badge.dataset.speaker;
+    if (speakerFilter && segSpeaker !== speakerFilter) {
+      li.style.display = "none";
+    } else {
+      li.style.display = "";
+    }
+  }
+
+  // 更新面板上的篩選狀態
+  const checkbox = $("speakerFilterEnabled");
+  if (checkbox) checkbox.checked = !!speakerFilter;
+}
+
+function updateSpeakerPanelSelection() {
+  const panel = $("speakerPanel");
+  if (!panel) return;
+  for (const item of panel.querySelectorAll(".speaker-item")) {
+    const selected = item.dataset.speaker === speakerFilter;
+    item.setAttribute("aria-selected", String(selected));
+    item.classList.toggle("editing", false);
+  }
+}
+
+// 講者重新命名 Modal
+function openSpeakerRenameModal() {
+  const speakers = Object.keys(getSpeakerCounts()).sort();
+  if (!speakers.length) return;
+
+  const modal = el("div", "modal-overlay");
+  modal.innerHTML = `
+    <div class="modal" role="dialog" aria-labelledby="renameTitle" aria-modal="true">
+      <h3 id="renameTitle">重新命名講者</h3>
+      <p class="modal-hint">將系統自動偵測的講者代號改為易懂的名稱（如：張經理、李工程師）</p>
+      <div class="modal-body" id="renameBody"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close>取消</button>
+        <button type="button" class="btn primary" data-save>儲存</button>
+      </div>
+    </div>
+  `;
+
+  const body = modal.querySelector("#renameBody");
+  for (const speaker of speakers) {
+    const row = el("div", "rename-row");
+    const badge = el("span", `speaker-badge speaker-${speaker}`, speaker.replace("SPEAKER_", "講者 "));
+    const input = el("input", "rename-input");
+    input.type = "text";
+    input.placeholder = "輸入名稱...";
+    input.dataset.speaker = speaker;
+    input.value = getCustomSpeakerName(speaker) || "";
+    row.append(badge, input);
+    body.append(row);
+  }
+
+  document.body.append(modal);
+
+  modal.querySelector("[data-close]").addEventListener("click", () => modal.remove());
+  modal.querySelector("[data-save]").addEventListener("click", async () => {
+    const mapping = {};
+    for (const input of modal.querySelectorAll(".rename-input")) {
+      const val = input.value.trim();
+      if (val) mapping[input.dataset.speaker] = val;
+    }
+    await applySpeakerRename(mapping);
+    modal.remove();
+  });
+
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) modal.remove();
+  });
+
+  // 聚焦第一個輸入框
+  const firstInput = modal.querySelector(".rename-input");
+  if (firstInput) firstInput.focus();
+}
+
+function getCustomSpeakerName(speaker) {
+  const stored = localStorage.getItem(`speakerName_${state.meetingId}_${speaker}`);
+  return stored || "";
+}
+
+function setCustomSpeakerName(speaker, name) {
+  if (name) {
+    localStorage.setItem(`speakerName_${state.meetingId}_${speaker}`, name);
+  } else {
+    localStorage.removeItem(`speakerName_${state.meetingId}_${speaker}`);
+  }
+}
+
+async function applySpeakerRename(mapping) {
+  if (!state.meetingId || !Object.keys(mapping).length) return;
+
+  try {
+    // 呼叫 API 更新講者名稱
+    const res = await api(`/api/v1/meetings/${state.meetingId}/transcript/speakers`, {
+      method: "PUT",
+      json: { mapping }
+    });
+
+    // 更新本地狀態
+    for (const [oldName, newName] of Object.entries(mapping)) {
+      setCustomSpeakerName(oldName, newName);
+    }
+
+    // 重新載入逐字稿
+    await loadTranscript();
+  } catch (err) {
+    showError($("rpError") || $("uploadError"), `重新命名失敗：${err.message}`);
+  }
+}
+
+// 講者合併 Modal
+function openSpeakerMergeModal() {
+  const speakers = Object.keys(getSpeakerCounts()).sort();
+  if (speakers.length < 2) return;
+
+  const modal = el("div", "modal-overlay");
+  modal.innerHTML = `
+    <div class="modal" role="dialog" aria-labelledby="mergeTitle" aria-modal="true">
+      <h3 id="mergeTitle">合併講者</h3>
+      <p class="modal-hint">將多位被誤判為不同講者的片段合併為同一位講者</p>
+      <div class="modal-body" id="mergeBody"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn ghost" data-close>取消</button>
+        <button type="button" class="btn primary" data-save>合併</button>
+      </div>
+    </div>
+  `;
+
+  const body = modal.querySelector("#mergeBody");
+
+  // 目標講者選擇
+  const targetGroup = el("div", "merge-group");
+  targetGroup.append(el("label", null, "合併目標（保留這個講者）："));
+  const targetSelect = el("select", "merge-select");
+  targetSelect.id = "mergeTarget";
+  for (const speaker of speakers) {
+    const opt = el("option", null, speaker.replace("SPEAKER_", "講者 "));
+    opt.value = speaker;
+    targetSelect.append(opt);
+  }
+  targetGroup.append(targetSelect);
+  body.append(targetGroup);
+
+  // 來源講者選擇（可多選）
+  const sourceGroup = el("div", "merge-group");
+  sourceGroup.append(el("label", null, "要合併進去的講者（可多選）："));
+  const sourceList = el("div", "merge-source-list");
+  for (const speaker of speakers) {
+    const row = el("label", "merge-source-row");
+    const checkbox = el("input", null, null);
+    checkbox.type = "checkbox";
+    checkbox.value = speaker;
+    checkbox.dataset.speaker = speaker;
+    const badge = el("span", `speaker-badge speaker-${speaker}`, speaker.replace("SPEAKER_", "講者 "));
+    row.append(checkbox, badge);
+    sourceList.append(row);
+  }
+  sourceGroup.append(sourceList);
+  body.append(sourceGroup);
+
+  document.body.append(modal);
+
+  modal.querySelector("[data-close]").addEventListener("click", () => modal.remove());
+  modal.querySelector("[data-save]").addEventListener("click", async () => {
+    const target = modal.querySelector("#mergeTarget").value;
+    const sources = [...modal.querySelectorAll(".merge-source-row input:checked")].map(cb => cb.value);
+
+    if (!sources.length) {
+      alert("請至少選擇一個要合併的講者");
+      return;
+    }
+    if (sources.includes(target)) {
+      alert("目標講者不能同時是來源講者");
+      return;
+    }
+
+    const mapping = {};
+    for (const s of sources) mapping[s] = target;
+
+    await applySpeakerRename(mapping);
+    modal.remove();
+  });
+
+  modal.addEventListener("click", (e) => {
+    if (e.target === modal) modal.remove();
+  });
 }
 
 function segmentText(seg, items) {

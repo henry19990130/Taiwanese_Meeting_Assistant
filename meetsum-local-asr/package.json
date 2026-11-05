@@ -1,0 +1,35 @@
+{
+  "name": "meetsum-local-asr",
+  "version": "1.0.0",
+  "description": "Capacitor plugin for on-device ASR with WhisperKit",
+  "main": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "module": "dist/esm/index.js",
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch"
+  },
+  "keywords": [
+    "capacitor",
+    "plugin",
+    "asr",
+    "whisper",
+    "ios",
+    "on-device"
+  ],
+  "author": "覓聲 MeetSum Team",
+  "license": "MIT",
+  "peerDependencies": {
+    "@capacitor/core": "^6.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/core": "^6.0.0",
+    "typescript": "^5.3.0"
+  },
+  "capacitor": {
+    "ios": {
+      "src": "ios"
+    }
+  }
+}
