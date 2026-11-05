@@ -21,25 +21,33 @@ CREATE TABLE IF NOT EXISTS sessions (
     expires_at TIMESTAMPTZ NOT NULL
 );
 
+-- ============================================================
+-- 會議主表：每場會議一列（上傳音檔或直接貼逐字稿）
+-- 主要查詢：repositories/library.py——依 created_by 過濾、date/start_time 由新到舊排序
+-- ============================================================
 CREATE TABLE IF NOT EXISTS meetings (
-    id UUID PRIMARY KEY,
-    meeting_name VARCHAR(255) NOT NULL,
-    date DATE NOT NULL,
-    start_time TIME,
-    end_time TIME,
-    source_type VARCHAR(20),
-    audio_path TEXT,
-    status VARCHAR(30) NOT NULL DEFAULT 'uploaded',
-    error_message TEXT,
+    id UUID PRIMARY KEY,                               -- 由應用端（Python uuid4）產生，資料庫無預設值
+    meeting_name VARCHAR(255) NOT NULL,                -- 顯示名稱；前端 maxlength=255（index.html:152）
+    date DATE NOT NULL,                                -- 會議日期（牆上時間，無時區；跨午夜會議 end_time < start_time）
+    start_time TIME,                                   -- 可空：transcript 來源可能沒有時間資訊
+    end_time TIME,                                     -- 可空：同上
+    source_type VARCHAR(20) NOT NULL DEFAULT 'audio',  -- 合法值 'audio'｜'transcript'，定義在 repositories/meetings.py SOURCE_TYPES
+    audio_path TEXT,                                   -- 音檔路徑；source_type='transcript' 時為 NULL
+    status VARCHAR(30) NOT NULL DEFAULT 'uploaded',    -- 狀態機：uploaded→transcribing→proofreading→summarizing→transcribed/completed/failed
+    error_message TEXT,                                -- 失敗時存 JSON 字串 {stage, code, message}（repositories/meetings.py:55）
+    created_by UUID REFERENCES users(id),              -- 擁有者；所有權限判斷的依據（access.py、_and_owner）
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()      -- 無觸發器，由應用端每次 UPDATE 手動維護
 );
 
+-- ↓↓↓ 舊資料庫遷移區：全新資料庫的 CREATE 已包含以上欄位，以下皆為 no-op，不可刪 ↓↓↓
 ALTER TABLE meetings ADD COLUMN IF NOT EXISTS source_type VARCHAR(20) NOT NULL DEFAULT 'audio';
-ALTER TABLE meetings ALTER COLUMN audio_path DROP NOT NULL;
+ALTER TABLE meetings ALTER COLUMN audio_path DROP NOT NULL;  -- 舊版曾 NOT NULL；開放 transcript 來源後放寬
 ALTER TABLE meetings ADD COLUMN IF NOT EXISTS created_by UUID REFERENCES users(id);
 
--- 每個使用者的會議列表（library / assistant 都靠這個查詢）：owner 過濾 + 日期排序
+-- 每個使用者的會議列表（library / assistant 六個端點都靠這個查詢）：owner 過濾 + 日期排序
+-- 位置規則：必須在 created_by 的 ALTER 之後（全新資料庫靠上面才有的欄位）
+-- NULLS LAST 與 library.py 的 ORDER BY 完全一致，缺了它 Postgres 會重新排序
 CREATE INDEX IF NOT EXISTS meetings_owner_date_idx
     ON meetings (created_by, date DESC, start_time DESC NULLS LAST, created_at DESC);
 
