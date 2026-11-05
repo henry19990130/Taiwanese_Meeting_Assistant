@@ -43,9 +43,18 @@ function openGlossary() {
   loadGlossary();
   $("gdInput").focus();
 }
-$("glossaryBtn").addEventListener("click", openGlossary);
-$("rpGlossaryBtn").addEventListener("click", openGlossary);
-$("gdClose").addEventListener("click", () => $("glossaryDialog").close());
+$("glossaryBtn").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('light');
+  openGlossary();
+});
+$("rpGlossaryBtn").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('light');
+  openGlossary();
+});
+$("gdClose").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('light');
+  $("glossaryDialog").close();
+});
 
 function renderGlossaryList() {
   const q = $("gdFilter").value.trim();
@@ -202,7 +211,10 @@ $("transcriptList").addEventListener("scroll", hideSelBar);
 document.addEventListener("mousedown", (e) => {
   if (!$("selBar").hidden && !$("selBar").contains(e.target)) hideSelBar();
 });
-$("selClose").addEventListener("click", hideSelBar);
+$("selClose").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('light');
+  hideSelBar();
+});
 
 async function doReplace(all) {
   const info = sel.info;
@@ -220,13 +232,20 @@ async function doReplace(all) {
     rpMessage(msg);
   } catch (err) { showError($("rpError"), err.message); }
 }
-$("selOne").addEventListener("click", () => doReplace(false));
-$("selAll").addEventListener("click", () => doReplace(true));
+$("selOne").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('medium');
+  doReplace(false);
+});
+$("selAll").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('medium');
+  doReplace(true);
+});
 $("selInput").addEventListener("keydown", (e) => {
   if (e.key === "Enter") { e.preventDefault(); doReplace(false); }
   if (e.key === "Escape") hideSelBar();
 });
 $("selTermOnly").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('light');
   const info = sel.info;
   if (!info) return;
   try {

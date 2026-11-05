@@ -8,10 +8,74 @@ const state = {
   summaryLangTouched: false,
   proofread: null,
   pollTimer: null,
+  // 通知追蹤：避免重複發送同一會議的完成通知
+  notifiedMeetings: new Set(),
 };
 
 const $ = (id) => document.getElementById(id);
+
+// Capacitor Bridge - 掛載到 window 供其他模組使用
+import * as CapacitorBridge from './capacitor.js';
+window.CapacitorBridge = CapacitorBridge;
+
+// 常數：鑰匙串/Preferences 儲存鍵
+const TOKEN_KEY = 'meetsum.auth_token';
+const USER_KEY = 'meetsum.auth_user';
+
+// 初始化 Capacitor (在 DOM 準備好後)
+document.addEventListener('DOMContentLoaded', async () => {
+  try {
+    await CapacitorBridge.initCapacitor();
+    // 嘗試從安全儲存載入 token
+    await loadStoredAuth();
+  } catch (err) {
+    console.warn('[Capacitor] 初始化失敗:', err);
+  }
+});
 const STEP_ORDER = ["uploaded", "transcribing", "proofreading", "reviewing", "summarizing", "completed"];
+
+// 從安全儲存載入認證資訊
+async function loadStoredAuth() {
+  try {
+    const [token, userStr] = await Promise.all([
+      CapacitorBridge.getSecure(TOKEN_KEY),
+      CapacitorBridge.getSecure(USER_KEY),
+    ]);
+    if (token && userStr) {
+      state.token = token;
+      state.user = JSON.parse(userStr);
+      // 驗證 token 是否仍有效
+      try {
+        await api("/api/v1/auth/me"); // 假設有此端點，或用其他方式驗證
+        showApp();
+        return;
+      } catch (_) {
+        // token 無效，清除並回到登入頁
+        await clearStoredAuth();
+      }
+    }
+  } catch (err) {
+    console.warn('[Auth] 載入儲存的認證失敗:', err);
+  }
+  // 沒有有效 token，顯示登入頁
+  if (window.Entrance) Entrance.greet();
+}
+
+async function saveAuth(token, user) {
+  await Promise.all([
+    CapacitorBridge.setSecure(TOKEN_KEY, token),
+    CapacitorBridge.setSecure(USER_KEY, JSON.stringify(user)),
+  ]);
+}
+
+async function clearStoredAuth() {
+  await Promise.all([
+    CapacitorBridge.removeSecure(TOKEN_KEY),
+    CapacitorBridge.removeSecure(USER_KEY),
+  ]);
+  state.token = null;
+  state.user = null;
+}
 const STATUS_TEXT = {
   uploaded: "已上傳，等待處理…",
   transcribing: "正在辨識語音（會先載入這個語言的模型，辨識完就關閉）…",
@@ -91,6 +155,8 @@ function passwordOk(password) {
 async function enterRoom(data, form) {
   state.token = data.access_token;
   state.user = data.user;
+  // 儲存到安全儲存
+  await saveAuth(state.token, state.user);
   form.reset();
   showAuth("login");
   if (window.Entrance) await Entrance.close(displayName());
@@ -98,11 +164,18 @@ async function enterRoom(data, form) {
   if (window.Entrance) Entrance.open();
 }
 
-$("showRegister").addEventListener("click", () => showAuth("register"));
-$("showLogin").addEventListener("click", () => showAuth("login"));
+$("showRegister").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('light');
+  showAuth("register");
+});
+$("showLogin").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('light');
+  showAuth("login");
+});
 
 $("loginForm").addEventListener("submit", async (e) => {
   e.preventDefault();
+  await CapacitorBridge.hapticImpact('medium');
   const f = new FormData(e.target);
   showError($("loginError"), "");
   try {
@@ -115,6 +188,7 @@ $("loginForm").addEventListener("submit", async (e) => {
 
 $("registerForm").addEventListener("submit", async (e) => {
   e.preventDefault();
+  await CapacitorBridge.hapticImpact('medium');
   const f = new FormData(e.target);
   const username = String(f.get("username") || "").trim();
   const password = String(f.get("password") || "");
@@ -147,6 +221,7 @@ $("registerForm").addEventListener("submit", async (e) => {
 });
 
 $("logoutBtn").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('medium');
   try { await api("/api/v1/auth/logout", { method: "POST" }); } catch (_) {  }
   logoutLocal();
 });
@@ -155,6 +230,8 @@ function logoutLocal(message) {
   stopPolling();
   if (window.assistant) window.assistant.onLogout();
   Object.assign(state, { token: null, user: null, meetingId: null, status: null, transcript: null, summary: null, proofread: null });
+  // 清除安全儲存
+  clearStoredAuth();
   $("appView").hidden = true;
   $("userBox").hidden = true;
   $("loginView").hidden = false;
@@ -190,7 +267,10 @@ function resetMeeting() {
   for (const id of ["progressCard", "transcriptCard", "summaryCard"]) $(id).hidden = true;
   showError($("uploadError"), "");
 }
-$("newMeetingBtn").addEventListener("click", resetMeeting);
+$("newMeetingBtn").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('medium');
+  resetMeeting();
+});
 
 function setSource(source) {
   const form = $("uploadForm");
@@ -226,6 +306,7 @@ for (const r of document.querySelectorAll("input[name=asr_language]")) {
 
 $("uploadForm").addEventListener("submit", async (e) => {
   e.preventDefault();
+  await CapacitorBridge.hapticImpact('medium');
   const form = new FormData(e.target);
   for (const k of ["start_time", "end_time"]) if (!form.get(k)) form.delete(k);
   const source = form.get("source");
@@ -302,6 +383,25 @@ async function checkStatus() {
     || ["proofreading", "summarizing"].includes(failedStage);
   if (hasTranscript && (!state.transcript || (changed && data.status !== "summarizing"))) await loadTranscript();
   if (data.status === "completed" && (changed || $("summaryCard").hidden)) await loadSummary();
+
+  // 會議完成時發送本地通知 (僅發送一次)
+  if (data.status === "completed" && changed && !state.notifiedMeetings.has(state.meetingId)) {
+    state.notifiedMeetings.add(state.meetingId);
+    const meetingName = data.meeting_name || "會議";
+    try {
+      await CapacitorBridge.scheduleNotification({
+        id: Date.now(),
+        title: "覓聲 MeetSum",
+        body: `「${meetingName}」處理完成，重點已產生！`,
+        extra: { meetingId: state.meetingId },
+      });
+      // 觸覺回饋
+      await CapacitorBridge.hapticNotification('success');
+    } catch (err) {
+      console.warn('[Notification] 發送失敗:', err);
+    }
+  }
+
   if (["reviewing", "transcribed", "completed", "failed"].includes(data.status)) stopPolling();
 }
 
@@ -446,7 +546,8 @@ function fmtMs(ms) {
   return h ? `${h}:${mm}:${ss}` : `${mm}:${ss}`;
 }
 
-$("downloadJsonBtn").addEventListener("click", () => {
+$("downloadJsonBtn").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('light');
   if (!state.transcript) return;
   const out = { ...state.transcript, proofread: state.proofread };
   const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
@@ -594,8 +695,14 @@ function markCurrent(scroll = false) {
     list.scrollTo({ top: list.scrollTop + offset - list.clientHeight / 2, behavior: "smooth" });
   }
 }
-$("typoPrev").addEventListener("click", () => gotoTypo(review.index <= 0 ? suggestions().length - 1 : review.index - 1));
-$("typoNext").addEventListener("click", () => gotoTypo(review.index + 1));
+$("typoPrev").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('light');
+  gotoTypo(review.index <= 0 ? suggestions().length - 1 : review.index - 1);
+});
+$("typoNext").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('light');
+  gotoTypo(review.index + 1);
+});
 
 async function decide(action, ids, replacement) {
   showError($("rpError"), "");
@@ -619,12 +726,14 @@ function applyEditResult(out, keepPosition = true) {
 }
 
 $("acceptAllBtn").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('medium');
   const n = state.proofread ? state.proofread.counts.pending : 0;
   if (!n || !window.confirm(`把還沒處理的 ${n} 處全部改成 AI 建議的字？（之後還可以一處一處復原）`)) return;
   await decide("accept", null);
 });
 
 $("confirmBtn").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('medium');
   const n = state.proofread ? state.proofread.counts.pending : 0;
   if (n && !window.confirm(`還有 ${n} 處疑似錯字沒處理，確認後這些地方會保留原文。確定要確認逐字稿嗎？`)) return;
   $("confirmBtn").disabled = true;
@@ -638,6 +747,7 @@ $("confirmBtn").addEventListener("click", async () => {
 });
 
 $("reproofBtn").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('medium');
   try {
     const data = await api(`/api/v1/meetings/${state.meetingId}/proofread`, { method: "POST" });
     renderStatus({ status: data.status, error: null });
@@ -660,6 +770,7 @@ function syncSummaryLang() {
 $("summaryLang").addEventListener("change", () => { state.summaryLangTouched = true; });
 
 $("summarizeBtn").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('medium');
   $("summarizeBtn").disabled = true;
   try {
     const data = await api(`/api/v1/meetings/${state.meetingId}/summary`,
@@ -1020,8 +1131,24 @@ $("downloadSummaryBtn").addEventListener("click", async () => {
     review_notes: sm.review_notes,
     transcript_proofread: state.proofread ? state.proofread.counts : null,
   };
-  const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
-  downloadBlob(blob, `重點_${safeName(sm.meeting_name)}_${stamp(data.updated_at)}.json`);
+  const jsonStr = JSON.stringify(out, null, 2);
+  const base64 = btoa(unescape(encodeURIComponent(jsonStr)));
+  const filename = `重點_${safeName(sm.meeting_name)}_${stamp(data.updated_at)}.json`;
+
+  if (window.CapacitorBridge?.writeFile) {
+    try {
+      await CapacitorBridge.writeFile(filename, base64, 'Documents');
+      if (window.CapacitorBridge?.hapticNotification) {
+        await CapacitorBridge.hapticNotification('success');
+      }
+      return;
+    } catch (err) {
+      console.warn('原生檔案寫入失敗，改用瀏覽器下載:', err);
+    }
+  }
+
+  const blob = new Blob([jsonStr], { type: "application/json" });
+  downloadBlob(blob, filename);
 });
 
 const FONT = '"Noto Sans TC", "Noto Sans CJK TC", "PingFang TC", "Microsoft JhengHei", "Heiti TC", sans-serif';
@@ -1270,7 +1397,8 @@ function drawShareImage(data) {
   return out;
 }
 
-$("saveImageBtn").addEventListener("click", () => {
+$("saveImageBtn").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('light');
   if (!state.summary) return;
   const canvas = drawShareImage(state.summary);
   canvas.toBlob((blob) => {

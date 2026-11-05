@@ -211,4 +211,7 @@ async function exportDeck() {
   window.print();
 }
 
-$("deckBtn").addEventListener("click", exportDeck);
+$("deckBtn").addEventListener("click", async () => {
+  await CapacitorBridge.hapticImpact('light');
+  exportDeck();
+});

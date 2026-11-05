@@ -4,3 +4,22 @@ __pycache__/
 *.pyc
 backend/storage/audio/*
 !backend/storage/audio/.gitkeep
+
+# Capacitor / iOS
+node_modules/
+ios/App/App/public/
+ios/App/Pods/
+ios/App/App.xcworkspace/
+ios/App/build/
+*.ipa
+*.dSYM
+*.xcarchive
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
