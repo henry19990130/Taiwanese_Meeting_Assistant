@@ -63,6 +63,11 @@ jobs:
               print('No GPU - using CPU (will be slow)')
           "
 
+      - name: Set model version slug
+        id: vars
+        run: |
+          echo "model_slug=$(echo '${{ github.event.inputs.model_version }}' | sed 's|/|-|g')" >> $GITHUB_OUTPUT
+
       - name: Convert model
         env:
           MODEL_REPO_ID: ${{ github.event.inputs.model_version }}
@@ -89,12 +94,12 @@ jobs:
       - name: Create release archive
         run: |
           cd breeze-asr-coreml
-          zip -r ../breeze-asr-coreml-${{ replace(github.event.inputs.model_version, '/', '-') }}.zip .
+          zip -r ../breeze-asr-coreml-${{ steps.vars.outputs.model_slug }}.zip .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: breeze-asr-coreml-${{ replace(github.event.inputs.model_version, '/', '-') }}
+          name: breeze-asr-coreml-${{ steps.vars.outputs.model_slug }}
           path: breeze-asr-coreml-*.zip
           retention-days: 30
 
@@ -102,7 +107,7 @@ jobs:
         if: success()
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: breeze-asr-coreml-${{ replace(github.event.inputs.model_version, '/', '-') }}-${{ github.run_number }}
+          tag_name: breeze-asr-coreml-${{ steps.vars.outputs.model_slug }}-${{ github.run_number }}
           name: Breeze-ASR Core ML ${{ github.event.inputs.model_version }} (WhisperKit)
           files: breeze-asr-coreml-*.zip
           generate_release_notes: true
@@ -123,7 +128,7 @@ jobs:
       - name: Download model artifact
         uses: actions/download-artifact@v4
         with:
-          name: breeze-asr-coreml-${{ replace(github.event.inputs.model_version, '/', '-') }}
+          name: breeze-asr-coreml-${{ needs.convert.outputs.model_slug }}
           path: ios/App/Models
 
       - name: Extract model
