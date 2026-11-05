@@ -336,11 +336,13 @@ public class MeetsumLocalASRPlugin: CAPPlugin, CAPBridgedPlugin {
 
     @objc func getAvailableModels(_ call: CAPPluginCall) {
         let models: [[String: Any]] = [
-            ["name": "tiny", "size_mb": 75, "path": "", "downloaded": false, "quantization": "q4_k"],
-            ["name": "base", "size_mb": 142, "path": "", "downloaded": false, "quantization": "q4_k"],
-            ["name": "small", "size_mb": 466, "path": "", "downloaded": false, "quantization": "q4_k"],
-            ["name": "large-v3-v20240930_626MB", "size_mb": 600, "path": "", "downloaded": false, "quantization": "q4_k"],
-            ["name": "large-v3-v20240930_turbo", "size_mb": 1600, "path": "", "downloaded": false, "quantization": "q4_k"],
+            ["name": "tiny", "size_mb": 75, "path": "", "downloaded": false, "quantization": "q4_k", "engine": "whisperkit"],
+            ["name": "base", "size_mb": 142, "path": "", "downloaded": false, "quantization": "q4_k", "engine": "whisperkit"],
+            ["name": "small", "size_mb": 466, "path": "", "downloaded": false, "quantization": "q4_k", "engine": "whisperkit"],
+            ["name": "large-v3-v20240930_626MB", "size_mb": 600, "path": "", "downloaded": false, "quantization": "q4_k", "engine": "whisperkit"],
+            ["name": "large-v3-v20240930_turbo", "size_mb": 1600, "path": "", "downloaded": false, "quantization": "q4_k", "engine": "whisperkit"],
+            // BreezeASR-26 (MediaTek) - 台語/國語/英文優化，待 Core ML 模型發布後啟用
+            ["name": "breeze-asr-26-coreml", "size_mb": 800, "path": "", "downloaded": false, "quantization": "4bit", "engine": "breezeasr"],
         ].map { model in
             var m = model
             let folder = self.getModelFolder(modelSize: model["name"] as! String, quantization: model["quantization"] as! String)
@@ -441,6 +443,7 @@ public class MeetsumLocalASRPlugin: CAPPlugin, CAPBridgedPlugin {
         let enableDiarization = call.getBool("enableDiarization") ?? true
         let modelSize = call.getString("modelSize") ?? "large-v3-v20240930_626MB"
         let quantization = call.getString("quantization") ?? "q4_k"
+        let engineType = call.getString("engine") ?? "whisperkit"  // whisperkit | breezeasr
         let useVad = call.getBool("useVad") ?? true
         let vadThreshold = call.getDouble("vadThreshold") ?? 0.5
 
@@ -453,6 +456,7 @@ public class MeetsumLocalASRPlugin: CAPPlugin, CAPBridgedPlugin {
             enableDiarization: enableDiarization,
             modelSize: modelSize,
             quantization: quantization,
+            engineType: engineType,
             useVad: useVad,
             vadThreshold: vadThreshold,
             plugin: self
@@ -588,6 +592,7 @@ final class TranscriptionJob {
     let enableDiarization: Bool
     let modelSize: String
     let quantization: String
+    let engineType: String
     let useVad: Bool
     let vadThreshold: Double
     weak var plugin: MeetsumLocalASRPlugin?
@@ -605,6 +610,7 @@ final class TranscriptionJob {
         enableDiarization: Bool,
         modelSize: String,
         quantization: String,
+        engineType: String,
         useVad: Bool,
         vadThreshold: Double,
         plugin: MeetsumLocalASRPlugin?
@@ -615,6 +621,7 @@ final class TranscriptionJob {
         self.enableDiarization = enableDiarization
         self.modelSize = modelSize
         self.quantization = quantization
+        self.engineType = engineType
         self.useVad = useVad
         self.vadThreshold = vadThreshold
         self.plugin = plugin
@@ -648,35 +655,38 @@ final class TranscriptionJob {
             // 解析音檔路徑
             let audioURL = resolveAudioURL(audioPath)
 
-            // 載入模型
-            updateProgress(0.1, status: .downloading)
-            let whisperKit = try await plugin.loadWhisperKit(modelSize: modelSize, quantization: quantization)
-
-            // 執行轉錄 - 使用 WhisperKit 的 transcribe 方法
-            // WhisperKit 回傳 TranscriptionResult 陣列（每個音檔一個結果）
-            let transcriptionResults = try await whisperKit.transcribe(
-                audioPath: audioURL.path
-            )
-
-            // 取得第一個結果（單一音檔）
-            guard let transcriptionResult = transcriptionResults.first else {
-                throw NSError(
-                    domain: "MeetsumLocalASR",
-                    code: 1002,
-                    userInfo: [NSLocalizedDescriptionKey: "轉錄結果為空"]
-                )
+            // 選擇引擎
+            let engine: LocalASREngine
+            switch engineType {
+            case "breezeasr":
+                engine = BreezeASREngine(plugin: plugin)
+            case "whisperkit":
+                fallthrough
+            default:
+                engine = WhisperKitEngine(plugin: plugin)
             }
 
-            // 講者辨識
+            // 載入模型
+            updateProgress(0.1, status: .downloading)
+            try await engine.load(modelSize: modelSize, quantization: quantization)
+
+            // 執行轉錄
+            updateProgress(0.3, status: .processing)
+            let engineResult = try await engine.transcribe(
+                audioPath: audioURL.path,
+                language: language,
+                enableDiarization: enableDiarization
+            )
+
+            // 講者辨識 (如果引擎不支援內建 diarization，使用 SpeakerKit)
             var diarizationSegments: [SpeakerSegment] = []
-            if enableDiarization {
-                updateProgress(0.5, status: .processing)
+            if enableDiarization && !engine.supportsDiarization {
+                updateProgress(0.6, status: .processing)
                 do {
                     let speakerKit = try await plugin.loadSpeakerKit()
-                    // 載入音頻數據
                     let audioArray = try AudioProcessor.loadAudioAsFloatArray(fromPath: audioURL.path)
                     let options = PyannoteDiarizationOptions(
-                        numberOfSpeakers: nil,  // 自動檢測講者數量
+                        numberOfSpeakers: nil,
                         clusterDistanceThreshold: 0.6,
                         useExclusiveReconciliation: false
                     )
@@ -689,14 +699,14 @@ final class TranscriptionJob {
             }
 
             // 將轉錄結果與講者資訊合併
-            let segments: [TranscriptionSegment] = transcriptionResult.segments.enumerated().map { index, segment in
+            let segments: [TranscriptionSegment] = engineResult.segments.enumerated().map { index, segment in
                 let segmentId = String(format: "S%04d", index + 1)
                 let startMs = Int(segment.start * 1000)
                 let endMs = Int(segment.end * 1000)
 
                 // 根據時間重疊匹配講者
-                var speaker = "SPEAKER_00"
-                if !diarizationSegments.isEmpty {
+                var speaker = segment.speaker ?? "SPEAKER_00"
+                if !diarizationSegments.isEmpty && engine.supportsDiarization == false {
                     // 找到時間重疊最多的講者片段
                     let segmentStart = segment.start
                     let segmentEnd = segment.end
@@ -730,14 +740,14 @@ final class TranscriptionJob {
                 )
             }
 
-            // 計算總時長（使用最後一個 segment 的結束時間）
+            // 計算總時長
             let totalDurationMs = segments.last?.end_ms ?? 0
 
             let result = TranscriptionResult(
                 segments: segments,
-                language: transcriptionResult.language,
+                language: engineResult.language,
                 duration_ms: totalDurationMs,
-                model_used: "\(modelSize)_\(quantization)"
+                model_used: "\(modelSize)_\(quantization)_\(engineType)"
             )
 
             self.result = result
