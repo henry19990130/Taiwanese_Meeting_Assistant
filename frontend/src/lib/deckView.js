@@ -1,3 +1,7 @@
+import { meeting } from "../state.js";
+import { $, el, fmtDate, fmtMD, fmtMs, safeName } from "./dom.js";
+import { buildFlow, segmentTimes } from "./flow.js";
+
 function deckSlide(deck, { cls = "", kicker = "", title = "" } = {}) {
   const s = el("section", `slide ${cls}`.trim());
   const head = el("header", "slide-head");
@@ -66,7 +70,7 @@ function deckTable(open, headers, rows, colClasses = []) {
 
 const li = (text, cls) => el("li", cls || null, text);
 
-function buildDeck(data) {
+export function buildDeck(data) {
   const sm = data.summary, mc = sm.meeting_content;
   const times = segmentTimes();
   const flow = buildFlow(mc, times);
@@ -85,7 +89,7 @@ function buildDeck(data) {
     s.append(hl);
     const kpis = el("div", "cover-kpis");
     for (const [label, n] of [["議題", flow.topics.length], ["決議", mc.decisions.length],
-                              ["待辦", mc.action_items.length], ["需要確認", sm.review_notes.length]]) {
+      ["待辦", mc.action_items.length], ["需要確認", sm.review_notes.length]]) {
       const k = el("div", "cover-kpi");
       k.append(el("b", null, String(n)), el("span", null, label));
       kpis.append(k);
@@ -195,12 +199,12 @@ function buildDeck(data) {
   return all.length;
 }
 
-async function exportDeck() {
-  if (!state.summary) return;
+export async function exportDeck() {
+  if (!meeting.summary) return;
   if (document.fonts && document.fonts.ready) await document.fonts.ready;
-  buildDeck(state.summary);
+  buildDeck(meeting.summary);
   const oldTitle = document.title;
-  document.title = `會議簡報_${safeName(state.summary.summary.meeting_name)}`;
+  document.title = `會議簡報_${safeName(meeting.summary.summary.meeting_name)}`;
   document.body.classList.add("print-deck");
   const done = () => {
     document.body.classList.remove("print-deck");
@@ -210,5 +214,3 @@ async function exportDeck() {
   window.addEventListener("afterprint", done);
   window.print();
 }
-
-$("deckBtn").addEventListener("click", exportDeck);

@@ -182,7 +182,7 @@ class AssistantAgent:
             "model": config.LLM_MODEL, "messages": messages, "stream": False,
             "think": config.ASSISTANT_THINK,
             "options": {"temperature": config.LLM_TEMPERATURE, "seed": config.LLM_SEED,
-                        "num_ctx": config.LLM_NUM_CTX},
+                        "num_ctx": config.LLM_NUM_CTX, "use_cache": True},
         }
         if allow_tools:
             payload["tools"] = TOOLS

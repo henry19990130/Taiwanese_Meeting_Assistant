@@ -108,10 +108,13 @@ def read_env(path):
 
 def sync_code():
     """把來源的最新程式複製到 PROJECT_DIR（不動 log、上傳的音檔）。
-    .env 每次依來源重建：有 .env 用 .env，沒有就用 .env.example。"""
+    .env 每次依來源重建：有 .env 用 .env，沒有就用 .env.example。
+    node_modules 與 Vite 快取不複製；頁面用已經建好的 frontend/dist。"""
     shutil.copytree(SOURCE_DIR, PROJECT_DIR, dirs_exist_ok=True,
-                    ignore=shutil.ignore_patterns('.git', '.tmp.driveupload', 'logs', 'audio',
-                                                  '__pycache__', '*.pyc', '.env'))
+                    ignore=shutil.ignore_patterns(
+                        '.git', '.tmp.driveupload', 'logs', 'audio',
+                        '__pycache__', '*.pyc', '.env',
+                        'node_modules', '.vite'))
     for name in ('.env', '.env.example'):
         src = os.path.join(SOURCE_DIR, name)
         if os.path.exists(src):

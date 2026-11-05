@@ -41,4 +41,4 @@ def health() -> dict:
     }
 
 
-app.mount("/", StaticFiles(directory=config.FRONTEND_DIR, html=True), name="frontend")
+app.mount("/", StaticFiles(directory=config.FRONTEND_DIR / "dist", html=True), name="frontend")

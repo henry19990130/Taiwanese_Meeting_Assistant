@@ -351,6 +351,7 @@ class TypoChecker:
                 "temperature": config.LLM_TEMPERATURE,
                 "seed": config.LLM_SEED,
                 "num_ctx": config.LLM_NUM_CTX,
+                "use_cache": True,
             },
         }
         resp = httpx.post(f"{config.OLLAMA_HOST}/api/chat", json=payload, timeout=config.LLM_TIMEOUT_SECONDS)

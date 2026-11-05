@@ -67,6 +67,7 @@ class SummarizerService:
                 "temperature": config.LLM_TEMPERATURE,
                 "seed": seed,
                 "num_ctx": config.LLM_NUM_CTX,
+                "use_cache": True,
             },
         }
         if config.LLM_THINK is not None:
