@@ -87,12 +87,20 @@ ALTER TABLE meeting_summaries ADD COLUMN IF NOT EXISTS typo_suggestions JSONB NO
 
 
 
+-- ============================================================
+-- 使用者自訂詞庫：ASR 與校對提示用的專有名詞（meeting_service.py term_strings 取用）
+-- 上限：MAX_TERMS=200、MAX_TERM_LEN=30，定義在 repositories/terms.py
+-- ============================================================
 CREATE TABLE IF NOT EXISTS user_terms (
-    id UUID PRIMARY KEY,
+    id UUID PRIMARY KEY,                                    -- 應用端（Python uuid4）產生
     user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-    term VARCHAR(50) NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    UNIQUE (user_id, term)
+    term VARCHAR(30) NOT NULL,                              -- 大小寫視為不同詞（'Whisper' ≠ 'whisper'）；長度與 terms.py MAX_TERM_LEN 一致
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),          -- 同一批加入的詞 NOW() 相同，排序靠 term 破平手
+    UNIQUE (user_id, term)                                  -- 同時是 ON CONFLICT (user_id, term) 判重的依據
 );
--- 詞庫列表：user_id 過濾 + created_at 新→舊排序（UNIQUE 索引不提供此排序）
+-- 詞庫列表（terms.py:11）：WHERE user_id = %s ORDER BY created_at, term（舊→新）
+-- UNIQUE (user_id, term) 已涵蓋 user_id 過濾與判重；此索引讓 created_at 排序免排序節點
 CREATE INDEX IF NOT EXISTS user_terms_user_idx ON user_terms (user_id, created_at);
+
+-- ↓↓↓ 舊資料庫遷移區（user_terms）：不可刪 ↓↓↓
+ALTER TABLE user_terms ALTER COLUMN term TYPE VARCHAR(30);   -- 舊資料庫原為 VARCHAR(50)；需先確認無超過 30 字的資料
