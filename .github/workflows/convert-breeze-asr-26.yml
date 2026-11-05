@@ -89,12 +89,12 @@ jobs:
       - name: Create release archive
         run: |
           cd breeze-asr-coreml
-          zip -r ../breeze-asr-coreml-${{ github.event.inputs.model_version | replace('/', '-') }}.zip .
+          zip -r ../breeze-asr-coreml-${{ replace(github.event.inputs.model_version, '/', '-') }}.zip .
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: breeze-asr-coreml-${{ github.event.inputs.model_version | replace('/', '-') }}
+          name: breeze-asr-coreml-${{ replace(github.event.inputs.model_version, '/', '-') }}
           path: breeze-asr-coreml-*.zip
           retention-days: 30
 
@@ -102,7 +102,7 @@ jobs:
         if: success()
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: breeze-asr-coreml-${{ github.event.inputs.model_version | replace('/', '-') }}-${{ github.run_number }}
+          tag_name: breeze-asr-coreml-${{ replace(github.event.inputs.model_version, '/', '-') }}-${{ github.run_number }}
           name: Breeze-ASR Core ML ${{ github.event.inputs.model_version }} (WhisperKit)
           files: breeze-asr-coreml-*.zip
           generate_release_notes: true
@@ -123,7 +123,7 @@ jobs:
       - name: Download model artifact
         uses: actions/download-artifact@v4
         with:
-          name: breeze-asr-coreml-${{ github.event.inputs.model_version | replace('/', '-') }}
+          name: breeze-asr-coreml-${{ replace(github.event.inputs.model_version, '/', '-') }}
           path: ios/App/Models
 
       - name: Extract model
