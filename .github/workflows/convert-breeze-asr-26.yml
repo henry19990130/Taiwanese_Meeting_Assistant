@@ -50,7 +50,9 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install whisperkittools coremltools torch transformers huggingface_hub tqdm
+          pip install coremltools torch transformers huggingface_hub tqdm
+          # Install whisperkittools from GitHub (not on PyPI)
+          pip install git+https://github.com/argmaxinc/WhisperKitTools.git
 
       - name: Check GPU
         run: |
