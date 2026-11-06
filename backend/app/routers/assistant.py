@@ -1,10 +1,15 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Query
+import logging
+
+from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
 
 from app.db import get_conn
 from app.deps import api_error, get_current_user
+from app.security.rate_limit import limit_assistant
+
+log = logging.getLogger(__name__)
 from app.repositories import library
 from app.services import assistant_search as S
 from app.services.assistant_agent import get_agent, today_local
@@ -76,12 +81,14 @@ def quote(body: QuoteBody, user: dict = Depends(get_current_user)) -> dict:
 
 
 @router.post("/chat")
-def chat(body: ChatBody, user: dict = Depends(get_current_user)) -> dict:
+def chat(body: ChatBody, request: Request, user: dict = Depends(get_current_user)) -> dict:
+    limit_assistant(request, user)
     lib = _lib(user)
     if not lib:
         return {"kind": "not_found", "sources": [], "trace": [],
                 "text": "你的帳號還沒有已確認逐字稿的會議，先上傳一場會議吧！"}
     try:
         return get_agent().answer(lib, body.question, [t.model_dump() for t in body.history])
-    except Exception as exc:
-        raise api_error(502, "ASSISTANT_FAILED", f"小幫手暫時無法回答：{exc}") from None
+    except Exception:
+        log.exception("小幫手回答失敗")
+        raise api_error(502, "ASSISTANT_FAILED", "小幫手暫時無法回答") from None

@@ -10,17 +10,48 @@ PROJECT_DIR = BACKEND_DIR.parent
 
 load_dotenv(PROJECT_DIR / ".env")
 
-DB_HOST = os.getenv("DB_HOST", "localhost")
-DB_PORT = int(os.getenv("DB_PORT", "5432"))
-DB_NAME = os.getenv("DB_NAME", "meeting_assistant")
-DB_USER = os.getenv("DB_USER", "meeting")
-DB_PASSWORD = os.getenv("DB_PASSWORD", "meeting")
-DATABASE_URL = " ".join(
-    f"{k}='{str(v).replace(chr(92), chr(92) * 2).replace(chr(39), chr(92) + chr(39))}'"
-    for k, v in {
-        "host": DB_HOST, "port": DB_PORT, "dbname": DB_NAME, "user": DB_USER, "password": DB_PASSWORD,
-    }.items()
-)
+_LOCAL_DB_HOSTS = frozenset({"localhost", "127.0.0.1", "::1"})
+_SSLMODES = frozenset({"disable", "allow", "prefer", "require", "verify-ca", "verify-full"})
+
+
+def _raw(name: str, default: str = "") -> str:
+    return os.getenv(name, default).strip()
+
+
+def database_settings() -> dict:
+    """沒有帳密就拒絕啟動。連線只允許本機，並把 sslmode 放進連線字串。"""
+    user = _raw("DB_USER")
+    password = _raw("DB_PASSWORD")
+    if not user or not password:
+        raise RuntimeError("必須設定 DB_USER 與 DB_PASSWORD，不再使用預設帳密")
+    host = _raw("DB_HOST") or "localhost"
+    if host not in _LOCAL_DB_HOSTS:
+        raise RuntimeError(f"資料庫只允許連本機，目前是 {host}")
+    sslmode = _raw("DB_SSLMODE") or "prefer"
+    if sslmode not in _SSLMODES:
+        raise RuntimeError("DB_SSLMODE 不合法")
+    name = _raw("DB_NAME") or "meeting_assistant"
+    port = int(_raw("DB_PORT") or "5432")
+    parts = {
+        "host": host, "port": port, "dbname": name, "user": user, "password": password,
+        "sslmode": sslmode,
+    }
+    url = " ".join(
+        f"{k}='{str(v).replace(chr(92), chr(92) * 2).replace(chr(39), chr(92) + chr(39))}'"
+        for k, v in parts.items()
+    )
+    return {"host": host, "port": port, "name": name, "user": user, "password": password,
+            "sslmode": sslmode, "url": url}
+
+
+_db = database_settings()
+DB_HOST = _db["host"]
+DB_PORT = _db["port"]
+DB_NAME = _db["name"]
+DB_USER = _db["user"]
+DB_PASSWORD = _db["password"]
+DB_SSLMODE = _db["sslmode"]
+DATABASE_URL = _db["url"]
 
 OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://127.0.0.1:11434")
 LLM_MODEL = os.getenv("LLM_MODEL", "qwen3.8:27b")
@@ -56,3 +87,4 @@ MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "500"))
 FRONTEND_DIR = PROJECT_DIR / "frontend"
 
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "28800"))
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").strip().lower() in ("1", "true", "yes")

@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFil
 from pydantic import BaseModel, Field
 
 from app.deps import api_error, client_ip, get_current_user
+from app.security.rate_limit import limit_summary, limit_upload
 from app.services import asr_models
 from app.services import meeting_service as svc
 
@@ -43,6 +44,7 @@ def _call(fn, *args):
 
 @router.post("", status_code=status.HTTP_202_ACCEPTED)
 def upload_meeting(
+    request: Request,
     audio: UploadFile | None = File(None),
     transcript: UploadFile | None = File(None),
     meeting_name: str = Form(...),
@@ -53,6 +55,7 @@ def upload_meeting(
     hakka_dialect: str | None = Form(None),
     user: dict = Depends(get_current_user),
 ) -> dict:
+    limit_upload(request, user)
     name = meeting_name.strip()
     if not 1 <= len(name) <= 255:
         raise api_error(422, "INVALID_MEETING_NAME", "會議名稱須為 1–255 字元")
@@ -220,6 +223,7 @@ class SummaryRequest(BaseModel):
 @router.post("/{meeting_id}/summary", status_code=status.HTTP_202_ACCEPTED)
 def generate_summary(meeting_id: str, request: Request, body: SummaryRequest | None = None,
                      user: dict = Depends(get_current_user)) -> dict:
+    limit_summary(request, user)
     language = body.language if body else None
     m = _call(lambda: svc.request_summary(
         _parse_id(meeting_id), language, actor=user, ip=client_ip(request),

@@ -64,6 +64,8 @@ class SecurityRulesTest(unittest.TestCase):
         self.root = Path(self.tmp.name)
         self._old_audit = os.environ.get("AUDIT_LOG_DIR")
         os.environ["AUDIT_LOG_DIR"] = str(self.root)
+        from app.security.rate_limit import limiter
+        limiter.reset()
 
     def tearDown(self):
         if self._old_audit is None:
@@ -134,9 +136,11 @@ class SecurityRulesTest(unittest.TestCase):
         client = self._auth_client(state)
         res = client.post("/api/v1/auth/login", json={"username": "alice", "password": PASSWORD})
         self.assertEqual(res.status_code, 200)
-        token = res.json()["access_token"]
+        self.assertNotIn("access_token", res.json())
+        token = res.cookies["session"]
         header = res.headers["set-cookie"].lower()
         self.assertIn("httponly", header)
+        self.assertIn("secure", header)
         self.assertIn("samesite=lax", header)
         self.assertIn("path=/", header)
         self.assertEqual(res.json()["expires_in"], config.SESSION_TTL_SECONDS)
@@ -181,11 +185,11 @@ class SecurityRulesTest(unittest.TestCase):
             self.assertEqual(res.json()["detail"]["message"], "帳號或密碼錯誤")
         fifth = client.post("/api/v1/auth/login", json={"username": "alice", "password": WRONG})
         self.assertEqual(fifth.status_code, 401)
-        self.assertEqual(fifth.json()["detail"]["message"], "已達 5 次上限，請 15 分鐘後再試")
+        self.assertEqual(fifth.json()["detail"]["message"], "帳號或密碼錯誤")
         self.assertTrue(state["lock"]["locked_until"] > datetime.now(timezone.utc) + timedelta(minutes=14))
         blocked = client.post("/api/v1/auth/login", json={"username": "alice", "password": PASSWORD})
         self.assertEqual(blocked.status_code, 401)
-        self.assertEqual(blocked.json()["detail"]["message"], "已達 5 次上限，請 15 分鐘後再試")
+        self.assertEqual(blocked.json()["detail"]["message"], "帳號或密碼錯誤")
         self.assertEqual(state["sessions"], [])
         actions = [event["action"] for event in _events(self.root)]
         self.assertEqual(actions[:4], ["登入失敗"] * 4)
@@ -237,8 +241,8 @@ class SecurityRulesTest(unittest.TestCase):
         self.assertEqual(created.status_code, 200)
         self.assertEqual(created.json()["user"]["display_name"], "王 經理")
         self.assertEqual(state["created"]["bob"]["display_name"], "王 經理")
-        token = created.json()["access_token"]
-        me = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+        self.assertNotIn("access_token", created.json())
+        me = client.get("/api/v1/auth/me")
         self.assertEqual(me.json()["display_name"], "王 經理")
 
     def test_register_endpoint_session_and_exists_message(self):
@@ -259,9 +263,11 @@ class SecurityRulesTest(unittest.TestCase):
         self.assertNotIn(PASSWORD, exists.text + race.text + bad_name.text + bad_pw.text)
         created = client.post("/api/v1/auth/register", json={"username": "new_user", "password": PASSWORD})
         self.assertEqual(created.status_code, 200)
-        token = created.json()["access_token"]
+        self.assertNotIn("access_token", created.json())
+        token = created.cookies["session"]
         header = created.headers["set-cookie"].lower()
         self.assertIn("httponly", header)
+        self.assertIn("secure", header)
         self.assertIn("samesite=lax", header)
         self.assertEqual(created.json()["user"]["username"], "new_user")
         stored = state["created"]["new_user"]["password_hash"]
@@ -271,7 +277,7 @@ class SecurityRulesTest(unittest.TestCase):
         self.assertEqual(stored_hash, hash_token(token))
         self.assertEqual(stored_user, state["created"]["new_user"]["id"])
         self.assertEqual(ttl, config.SESSION_TTL_SECONDS)
-        me = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {token}"})
+        me = client.get("/api/v1/auth/me")
         self.assertEqual(me.json()["username"], "new_user")
         self.assertIsNone(me.json()["display_name"])
         actions = [event["action"] for event in _events(self.root)]
@@ -445,6 +451,61 @@ class SecurityRulesTest(unittest.TestCase):
         self.assertIn("被換掉的內容", blob)
         self.assertTrue(path.exists())
 
+    def test_database_requires_password_local_host_and_sslmode(self):
+        from app.config import database_settings
+
+        with patch.dict(os.environ, {"DB_USER": "", "DB_PASSWORD": ""}, clear=False):
+            with self.assertRaises(RuntimeError):
+                database_settings()
+        with patch.dict(os.environ, {
+            "DB_USER": "app", "DB_PASSWORD": "secret", "DB_HOST": "10.1.2.3",
+        }, clear=False):
+            with self.assertRaises(RuntimeError):
+                database_settings()
+        with patch.dict(os.environ, {
+            "DB_USER": "app", "DB_PASSWORD": "secret", "DB_HOST": "127.0.0.1", "DB_SSLMODE": "require",
+        }, clear=False):
+            cfg = database_settings()
+        self.assertEqual(cfg["host"], "127.0.0.1")
+        self.assertIn("sslmode='require'", cfg["url"])
+        self.assertNotEqual(cfg["password"], "meeting")
+
+    def test_health_hides_models_and_docs_are_off(self):
+        from app.main import app, health
+
+        self.assertEqual(health(), {"status": "ok"})
+        self.assertIsNone(app.docs_url)
+        self.assertIsNone(app.redoc_url)
+        self.assertIsNone(app.openapi_url)
+
+    def test_security_headers(self):
+        from app.security.headers import SecurityHeadersMiddleware
+
+        mini = FastAPI()
+        mini.add_middleware(SecurityHeadersMiddleware)
+
+        @mini.get("/x")
+        def _x():
+            return {"ok": True}
+
+        res = TestClient(mini).get("/x")
+        self.assertEqual(res.headers["x-content-type-options"], "nosniff")
+        self.assertEqual(res.headers["x-frame-options"], "DENY")
+        self.assertEqual(res.headers["referrer-policy"], "no-referrer")
+        self.assertIn("default-src 'self'", res.headers["content-security-policy"])
+
+    def test_login_rate_limit(self):
+        from app.security import rate_limit
+
+        state = self._auth_state()
+        client = self._auth_client(state)
+        with patch.dict(rate_limit._LIMITS, {"login": (1, 60)}):
+            first = client.post("/api/v1/auth/login", json={"username": "alice", "password": PASSWORD})
+            second = client.post("/api/v1/auth/login", json={"username": "alice", "password": PASSWORD})
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(second.status_code, 429)
+        self.assertEqual(second.json()["detail"]["message"], "操作太頻繁，請稍後再試")
+
     def _assert_audit_fields(self, event: dict):
         for key in ("time", "timezone", "username", "ip", "action", "detail"):
             self.assertIn(key, event)
@@ -536,7 +597,7 @@ class SecurityRulesTest(unittest.TestCase):
         for item in patches:
             item.start()
             self.addCleanup(item.stop)
-        return TestClient(app)
+        return TestClient(app, base_url="https://testserver")
 
 
 def _legacy_scrypt(password: str) -> str:

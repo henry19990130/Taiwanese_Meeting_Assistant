@@ -27,7 +27,7 @@ export function passwordOk(password) {
 }
 
 export async function enterRoom(data, form) {
-  session.token = data.access_token;
+  session.token = null;
   session.user = data.user;
   form?.reset();
   await hooks.beforeShow(displayName());

@@ -53,7 +53,7 @@ def on_startup() -> None:
 
 
 def _load_owned(conn, meeting_id, actor: dict, ip: str):
-    meeting = meetings.get_meeting(conn, meeting_id)
+    meeting = meetings.get_meeting(conn, meeting_id, owner_id=actor["id"])
     try:
         return classify(meeting, actor["id"])
     except NotOwner:
@@ -192,9 +192,9 @@ def _run_transcription(meeting_id: uuid.UUID, language: str = asr_models.DEFAULT
             transcripts.save_transcript(conn, meeting_id, segments, model_name, asr_info)
             meetings.update_status(conn, meeting_id, "proofreading")
         log.info("會議 %s 辨識完成，共 %d 段", meeting_id, len(segments))
-    except Exception as exc:
+    except Exception:
         log.exception("會議 %s 辨識失敗", meeting_id)
-        _mark_failed(meeting_id, "transcribing", "ASR_FAILED", f"語音辨識失敗：{exc}")
+        _mark_failed(meeting_id, "transcribing", "ASR_FAILED", "語音辨識失敗")
         return
     _run_proofread(meeting_id)
 
@@ -214,9 +214,9 @@ def _run_proofread(meeting_id: uuid.UUID) -> None:
             try:
                 suggestions, problems = checker.check(row["transcript"], glossary)
                 language = checker.last_language
-            except Exception as exc:
+            except Exception:
                 log.exception("會議 %s 錯字檢查失敗", meeting_id)
-                problems = [f"錯字檢查沒有完成：{exc}"]
+                problems = ["錯字檢查沒有完成"]
         proofread = {"enabled": config.TYPO_CHECK, "suggestions": suggestions, "problems": problems,
                      "glossary_count": len(glossary), "language": language,
                      "manual": (row["proofread"] or {}).get("manual", [])}
@@ -224,9 +224,9 @@ def _run_proofread(meeting_id: uuid.UUID) -> None:
             transcripts.save_proofread(conn, meeting_id, proofread)
             meetings.update_status(conn, meeting_id, "reviewing")
         log.info("會議 %s 校對完成，%d 處疑似錯字", meeting_id, len(suggestions))
-    except Exception as exc:
+    except Exception:
         log.exception("會議 %s 校對失敗", meeting_id)
-        _mark_failed(meeting_id, "proofreading", "PROOFREAD_FAILED", f"錯字校對失敗：{exc}")
+        _mark_failed(meeting_id, "proofreading", "PROOFREAD_FAILED", "錯字校對失敗")
 
 
 def get_proofread(meeting_id: uuid.UUID | str, *, actor: dict, ip: str = "") -> dict:
@@ -377,9 +377,9 @@ def _run_summary(meeting_id: uuid.UUID, language: str | None = None) -> None:
             summaries.upsert_summary(conn, meeting_id, summary, summarizer.model_name, language)
             meetings.update_status(conn, meeting_id, "completed")
         log.info("會議 %s 重點產生完成", meeting_id)
-    except Exception as exc:
+    except Exception:
         log.exception("會議 %s 產生重點失敗", meeting_id)
-        _mark_failed(meeting_id, "summarizing", "SUMMARY_GENERATION_FAILED", f"產生重點失敗：{exc}")
+        _mark_failed(meeting_id, "summarizing", "SUMMARY_GENERATION_FAILED", "產生重點失敗")
 
 
 def get_meeting(meeting_id: uuid.UUID | str, *, actor: dict, ip: str = "") -> dict:

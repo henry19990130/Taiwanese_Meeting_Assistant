@@ -1,17 +1,13 @@
 import { session } from "../state.js";
 
-let tokenOf = () => null;
 let on401 = () => {};
 
-export function bindSession(getToken, unauthorized) {
-  tokenOf = getToken;
+export function bindSession(_getToken, unauthorized) {
   on401 = unauthorized;
 }
 
 export async function api(path, { method = "GET", json, form } = {}) {
   const headers = {};
-  const token = tokenOf();
-  if (token) headers.Authorization = `Bearer ${token}`;
   let body;
   if (json !== undefined) {
     headers["Content-Type"] = "application/json";
@@ -19,10 +15,10 @@ export async function api(path, { method = "GET", json, form } = {}) {
   }
   if (form !== undefined) body = form;
 
-  const res = await fetch(path, { method, headers, body });
+  const res = await fetch(path, { method, headers, body, credentials: "same-origin" });
   if (res.status === 204) return null;
   const data = await res.json().catch(() => ({}));
-  if (res.status === 401 && token) on401();
+  if (res.status === 401 && session.entered) on401();
   if (!res.ok) {
     const d = data.detail;
     const msg = (d && d.message) || (Array.isArray(d) ? "輸入格式不正確" : null) || `錯誤 ${res.status}`;
@@ -31,6 +27,6 @@ export async function api(path, { method = "GET", json, form } = {}) {
   return data;
 }
 
-bindSession(() => session.token, () => {
+bindSession(null, () => {
   import("./useAuth.js").then((m) => m.logoutLocal("登入已失效，請重新登入"));
 });

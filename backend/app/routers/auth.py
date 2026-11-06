@@ -20,12 +20,12 @@ from app.security import (
     validate_username,
     verify_password,
 )
+from app.security.rate_limit import limit_login, limit_register
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 _COOKIE = "session"
 _INVALID = "帳號或密碼錯誤"
-_LOCKED = "已達 5 次上限，請 15 分鐘後再試"
 
 
 class LoginRequest(BaseModel):
@@ -65,13 +65,12 @@ def _session_body(response: Response, user: dict, token: str) -> dict:
         key=_COOKIE,
         value=token,
         httponly=True,
+        secure=config.COOKIE_SECURE,
         samesite="lax",
         path="/",
         max_age=config.SESSION_TTL_SECONDS,
     )
     return {
-        "access_token": token,
-        "token_type": "bearer",
         "expires_in": config.SESSION_TTL_SECONDS,
         "user": _user_out(user),
     }
@@ -90,6 +89,7 @@ def _reject(username: str, ip: str, password: str, *, action: str, reason: str, 
 
 @router.post("/login")
 def login(body: LoginRequest, request: Request, response: Response) -> dict:
+    limit_login(request)
     username = body.username.strip()
     password = body.password
     ip = client_ip(request)
@@ -117,7 +117,7 @@ def login(body: LoginRequest, request: Request, response: Response) -> dict:
             username, ip, password,
             action=failure[0],
             reason=failure[1],
-            message=_LOCKED if failure[1] == "locked" else _INVALID,
+            message=_INVALID,
         )
     audit.record(
         user_id=user["id"],
@@ -132,6 +132,7 @@ def login(body: LoginRequest, request: Request, response: Response) -> dict:
 
 @router.post("/register")
 def register(body: RegisterRequest, request: Request, response: Response) -> dict:
+    limit_register(request)
     username = body.username.strip()
     password = body.password
     ip = client_ip(request)
@@ -199,7 +200,7 @@ def logout(request: Request, user: dict = Depends(get_current_user)) -> Response
         detail={},
     )
     response = Response(status_code=status.HTTP_204_NO_CONTENT)
-    response.delete_cookie(_COOKIE, path="/")
+    response.delete_cookie(_COOKIE, path="/", secure=config.COOKIE_SECURE, samesite="lax")
     return response
 
 
