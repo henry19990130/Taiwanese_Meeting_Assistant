@@ -27,13 +27,13 @@ def _view(rows: list[dict]) -> dict:
 
 @router.get("")
 def list_glossary(user: dict = Depends(get_current_user)) -> dict:
-    with get_conn() as conn:
+    with get_conn(user["id"]) as conn:
         return _view(terms.list_terms(conn, user["id"]))
 
 
 @router.post("")
 def add_glossary(body: AddTerms, user: dict = Depends(get_current_user)) -> dict:
-    with get_conn() as conn:
+    with get_conn(user["id"]) as conn:
         result = terms.add_terms(conn, user["id"], body.terms)
         rows = terms.list_terms(conn, user["id"])
     return {**_view(rows), "result": result}
@@ -45,7 +45,7 @@ def delete_glossary(term_id: str, user: dict = Depends(get_current_user)) -> dic
         tid = uuid.UUID(term_id)
     except ValueError:
         raise api_error(404, "TERM_NOT_FOUND", "找不到這個詞") from None
-    with get_conn() as conn:
+    with get_conn(user["id"]) as conn:
         if not terms.delete_term(conn, user["id"], tid):
             raise api_error(404, "TERM_NOT_FOUND", "找不到這個詞")
         rows = terms.list_terms(conn, user["id"])

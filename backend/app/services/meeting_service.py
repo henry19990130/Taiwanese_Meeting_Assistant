@@ -45,7 +45,7 @@ class BadRequest(Exception):
 
 
 def on_startup() -> None:
-    with get_conn() as conn:
+    with get_conn(system=True) as conn:
         n = meetings.fail_interrupted(conn)
     if n:
         log.warning("有 %d 場會議因伺服器重啟而中斷，已標記為 failed", n)
@@ -99,7 +99,7 @@ def create_meeting(
 
     _save_upload(audio_file, audio_path)
     try:
-        with get_conn() as conn:
+        with get_conn(created_by) as conn:
             meeting = meetings.create_meeting(
                 conn,
                 meeting_id=meeting_id,
@@ -114,7 +114,7 @@ def create_meeting(
         uploads.unlink_inside(config.AUDIO_DIR, str(audio_path))
         raise
 
-    _worker.submit(_run_transcription, meeting_id, asr_language, asr_dialect)
+    _worker.submit(_run_transcription, meeting_id, created_by, asr_language, asr_dialect)
     return meeting
 
 
@@ -139,7 +139,7 @@ def create_meeting_from_transcript(
         raise ValueError("逐字稿檔是空的")
     segments = parse_transcript(data, original_filename or "")
 
-    with get_conn() as conn:
+    with get_conn(created_by) as conn:
         meeting = meetings.create_meeting(
             conn,
             meeting_name=meeting_name,
@@ -153,7 +153,7 @@ def create_meeting_from_transcript(
         transcripts.save_transcript(conn, meeting["id"], segments, UPLOADED_TRANSCRIPT_MODEL)
         meeting = meetings.update_status(conn, meeting["id"], "proofreading")
     log.info("會議 %s 由上傳逐字稿建立，共 %d 段", meeting["id"], len(segments))
-    _worker.submit(_run_proofread, meeting["id"])
+    _worker.submit(_run_proofread, meeting["id"], created_by)
     return meeting
 
 
@@ -173,10 +173,10 @@ def _save_upload(src: BinaryIO, dest: Path) -> None:
         raise
 
 
-def _run_transcription(meeting_id: uuid.UUID, language: str = asr_models.DEFAULT_LANGUAGE,
+def _run_transcription(meeting_id: uuid.UUID, owner_id, language: str = asr_models.DEFAULT_LANGUAGE,
                        dialect: str | None = None) -> None:
     try:
-        with get_conn() as conn:
+        with get_conn(owner_id) as conn:
             meeting = meetings.update_status(conn, meeting_id, "transcribing")
         if meeting is None:
             return
@@ -188,20 +188,20 @@ def _run_transcription(meeting_id: uuid.UUID, language: str = asr_models.DEFAULT
         if not segments:
             raise ValueError("辨識結果是空的，可能是音檔沒有人聲")
 
-        with get_conn() as conn:
+        with get_conn(owner_id) as conn:
             transcripts.save_transcript(conn, meeting_id, segments, model_name, asr_info)
             meetings.update_status(conn, meeting_id, "proofreading")
         log.info("會議 %s 辨識完成，共 %d 段", meeting_id, len(segments))
     except Exception:
         log.exception("會議 %s 辨識失敗", meeting_id)
-        _mark_failed(meeting_id, "transcribing", "ASR_FAILED", "語音辨識失敗")
+        _mark_failed(meeting_id, owner_id, "transcribing", "ASR_FAILED", "語音辨識失敗")
         return
-    _run_proofread(meeting_id)
+    _run_proofread(meeting_id, owner_id)
 
 
-def _run_proofread(meeting_id: uuid.UUID) -> None:
+def _run_proofread(meeting_id: uuid.UUID, owner_id) -> None:
     try:
-        with get_conn() as conn:
+        with get_conn(owner_id) as conn:
             row = transcripts.get_row(conn, meeting_id)
             meeting = meetings.get_meeting(conn, meeting_id)
             glossary = terms.term_strings(conn, meeting and meeting.get("created_by"))
@@ -220,17 +220,17 @@ def _run_proofread(meeting_id: uuid.UUID) -> None:
         proofread = {"enabled": config.TYPO_CHECK, "suggestions": suggestions, "problems": problems,
                      "glossary_count": len(glossary), "language": language,
                      "manual": (row["proofread"] or {}).get("manual", [])}
-        with get_conn() as conn:
+        with get_conn(owner_id) as conn:
             transcripts.save_proofread(conn, meeting_id, proofread)
             meetings.update_status(conn, meeting_id, "reviewing")
         log.info("會議 %s 校對完成，%d 處疑似錯字", meeting_id, len(suggestions))
     except Exception:
         log.exception("會議 %s 校對失敗", meeting_id)
-        _mark_failed(meeting_id, "proofreading", "PROOFREAD_FAILED", "錯字校對失敗")
+        _mark_failed(meeting_id, owner_id, "proofreading", "PROOFREAD_FAILED", "錯字校對失敗")
 
 
 def get_proofread(meeting_id: uuid.UUID | str, *, actor: dict, ip: str = "") -> dict:
-    with get_conn() as conn:
+    with get_conn(actor["id"]) as conn:
         meeting = _load_owned(conn, meeting_id, actor, ip)
         row = transcripts.get_row(conn, meeting_id)
     if row is None:
@@ -256,7 +256,7 @@ def _proofread_view(status: str, proofread: dict | None, confirmed_at) -> dict:
 
 
 def _edit(meeting_id, fn, *, actor: dict, ip: str) -> dict:
-    with get_conn() as conn:
+    with get_conn(actor["id"]) as conn:
         meeting = _load_owned(conn, meeting_id, actor, ip)
         row = transcripts.get_row(conn, meeting_id, for_update=True)
         if row is None or meeting["status"] != "reviewing" or row["confirmed_at"] is not None:
@@ -313,7 +313,7 @@ def replace_text(meeting_id, *, find: str, replace: str, segment_id: str | None,
 
 
 def confirm_transcript(meeting_id, *, actor: dict, ip: str = "") -> dict:
-    with get_conn() as conn:
+    with get_conn(actor["id"]) as conn:
         meeting = _load_owned(conn, meeting_id, actor, ip)
         row = transcripts.get_row(conn, meeting_id, for_update=True)
         if row is None or meeting["status"] != "reviewing" or row["confirmed_at"] is not None:
@@ -331,7 +331,7 @@ def confirm_transcript(meeting_id, *, actor: dict, ip: str = "") -> dict:
 
 
 def request_proofread(meeting_id, *, actor: dict, ip: str = "") -> dict:
-    with get_conn() as conn:
+    with get_conn(actor["id"]) as conn:
         current = _load_owned(conn, meeting_id, actor, ip)
         row = transcripts.get_row(conn, meeting_id)
         meeting = meetings.start_proofreading(conn, meeting_id, owner_id=actor["id"])
@@ -341,27 +341,27 @@ def request_proofread(meeting_id, *, actor: dict, ip: str = "") -> dict:
             "transcript": None if row is None else row.get("transcript"),
             "proofread": None if row is None else row.get("proofread"),
         })
-    _worker.submit(_run_proofread, meeting["id"])
+    _worker.submit(_run_proofread, meeting["id"], actor["id"])
     return meeting
 
 
 def request_summary(meeting_id: uuid.UUID | str, language: str | None = None, *, actor: dict, ip: str = "") -> dict:
     if language is not None and language not in SUMMARY_LANGUAGES:
         raise BadRequest(f"重點語言只能是 {'、'.join(SUMMARY_LANGUAGES)}，收到：{language}")
-    with get_conn() as conn:
+    with get_conn(actor["id"]) as conn:
         current = _load_owned(conn, meeting_id, actor, ip)
         previous = summaries.get_summary(conn, meeting_id)
         meeting = meetings.start_summarizing(conn, meeting_id, owner_id=actor["id"])
         if meeting is None:
             raise Conflict(f"目前狀態為 {current['status']}，需要先確認逐字稿才能產生重點")
         _snapshot(meeting_id, actor, ip, "重新產生", {"summary": previous})
-    _worker.submit(_run_summary, meeting["id"], language)
+    _worker.submit(_run_summary, meeting["id"], actor["id"], language)
     return meeting
 
 
-def _run_summary(meeting_id: uuid.UUID, language: str | None = None) -> None:
+def _run_summary(meeting_id: uuid.UUID, owner_id, language: str | None = None) -> None:
     try:
-        with get_conn() as conn:
+        with get_conn(owner_id) as conn:
             meeting = meetings.get_meeting(conn, meeting_id)
             transcript = transcripts.get_transcript(conn, meeting_id)
         if meeting is None:
@@ -373,22 +373,22 @@ def _run_summary(meeting_id: uuid.UUID, language: str | None = None) -> None:
         summarizer = get_summarizer_service()
         summary = summarizer.summarize(transcript, meeting, language=language)
 
-        with get_conn() as conn:
+        with get_conn(owner_id) as conn:
             summaries.upsert_summary(conn, meeting_id, summary, summarizer.model_name, language)
             meetings.update_status(conn, meeting_id, "completed")
         log.info("會議 %s 重點產生完成", meeting_id)
     except Exception:
         log.exception("會議 %s 產生重點失敗", meeting_id)
-        _mark_failed(meeting_id, "summarizing", "SUMMARY_GENERATION_FAILED", "產生重點失敗")
+        _mark_failed(meeting_id, owner_id, "summarizing", "SUMMARY_GENERATION_FAILED", "產生重點失敗")
 
 
 def get_meeting(meeting_id: uuid.UUID | str, *, actor: dict, ip: str = "") -> dict:
-    with get_conn() as conn:
+    with get_conn(actor["id"]) as conn:
         return _load_owned(conn, meeting_id, actor, ip)
 
 
 def get_transcript(meeting_id: uuid.UUID | str, *, actor: dict, ip: str = "") -> dict:
-    with get_conn() as conn:
+    with get_conn(actor["id"]) as conn:
         meeting = _load_owned(conn, meeting_id, actor, ip)
         transcript = transcripts.get_transcript(conn, meeting_id)
     if transcript is None:
@@ -397,7 +397,7 @@ def get_transcript(meeting_id: uuid.UUID | str, *, actor: dict, ip: str = "") ->
 
 
 def get_summary(meeting_id: uuid.UUID | str, *, actor: dict, ip: str = "") -> tuple[dict, dict]:
-    with get_conn() as conn:
+    with get_conn(actor["id"]) as conn:
         meeting = _load_owned(conn, meeting_id, actor, ip)
         summary = summaries.get_summary(conn, meeting_id)
     if summary is None:
@@ -406,7 +406,7 @@ def get_summary(meeting_id: uuid.UUID | str, *, actor: dict, ip: str = "") -> tu
 
 
 def delete_owned_meeting(meeting_id: uuid.UUID | str, *, actor: dict, ip: str = "") -> dict:
-    with get_conn() as conn:
+    with get_conn(actor["id"]) as conn:
         meeting = _load_owned(conn, meeting_id, actor, ip)
         row = transcripts.get_row(conn, meeting_id)
         summary = summaries.get_summary(conn, meeting_id)
@@ -424,9 +424,9 @@ def delete_owned_meeting(meeting_id: uuid.UUID | str, *, actor: dict, ip: str = 
     return deleted
 
 
-def _mark_failed(meeting_id, stage: str, code: str, message: str) -> None:
+def _mark_failed(meeting_id, owner_id, stage: str, code: str, message: str) -> None:
     try:
-        with get_conn() as conn:
+        with get_conn(owner_id) as conn:
             meetings.mark_failed(conn, meeting_id, stage=stage, code=code, message=message[:500])
     except Exception:
         log.exception("無法寫入失敗狀態（會議 %s）", meeting_id)

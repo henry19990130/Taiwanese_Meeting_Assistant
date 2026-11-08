@@ -11,6 +11,7 @@ import psycopg
 from psycopg.rows import dict_row
 
 from app import config, security
+from app.db import bind_user
 from app.repositories import meetings, sessions, summaries, transcripts, users
 
 passed = 0
@@ -56,9 +57,10 @@ def run(conn) -> None:
     ok("登出後查不到", sessions.get_valid_session(conn, th) is None)
 
     print("[meetings]")
+    bind_user(conn, u["id"])
     m = meetings.create_meeting(
         conn, meeting_name="測試會議", date=dt.date(2026, 10, 14),
-        start_time=dt.time(14, 0), audio_path="/tmp/test.m4a",
+        start_time=dt.time(14, 0), audio_path="/tmp/test.m4a", created_by=u["id"],
     )
     mid = m["id"]
     ok("建立會議，狀態 uploaded", m["status"] == "uploaded" and m["error"] is None)

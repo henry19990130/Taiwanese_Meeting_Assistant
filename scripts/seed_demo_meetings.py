@@ -93,7 +93,7 @@ def remove_seeded(conn, user_id) -> int:
 
 
 def seed(username: str, only_remove: bool) -> int:
-    from app.db import get_conn
+    from app.db import bind_user, get_conn
     from app.repositories import meetings, summaries, transcripts, users
 
     built = [] if only_remove else build_all()
@@ -102,6 +102,7 @@ def seed(username: str, only_remove: bool) -> int:
         if user is None:
             print(f"找不到帳號 {username}（先用 create_user.py 建立）")
             return 1
+        bind_user(conn, user["id"])
         removed = remove_seeded(conn, user["id"])
         if removed:
             print(f"已刪除之前放進去的 {removed} 場模擬會議")

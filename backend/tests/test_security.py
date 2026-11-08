@@ -31,7 +31,7 @@ WRONG = "Wronghorse99"
 
 
 @contextmanager
-def _conn():
+def _conn(*_args, **_kwargs):
     yield object()
 
 
@@ -450,6 +450,14 @@ class SecurityRulesTest(unittest.TestCase):
         self.assertIn("舊重點", blob)
         self.assertIn("被換掉的內容", blob)
         self.assertTrue(path.exists())
+
+    def test_rls_is_enabled_in_schema(self):
+        sql = (ROOT / "database" / "schema.sql").read_text(encoding="utf-8")
+        for table in ("meetings", "meeting_transcripts", "meeting_summaries", "user_terms"):
+            self.assertIn(f"ALTER TABLE {table} ENABLE ROW LEVEL SECURITY", sql)
+            self.assertIn(f"ALTER TABLE {table} FORCE ROW LEVEL SECURITY", sql)
+        self.assertIn("public.app_user_id()", sql)
+        self.assertNotIn("不要套到現有資料庫", sql)
 
     def test_database_requires_password_local_host_and_sslmode(self):
         from app.config import database_settings

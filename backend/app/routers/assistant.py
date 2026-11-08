@@ -18,7 +18,7 @@ router = APIRouter(prefix="/api/v1/assistant", tags=["assistant"])
 
 
 def _lib(user: dict) -> list[dict]:
-    with get_conn() as conn:
+    with get_conn(user["id"]) as conn:
         return library.load_library(conn, user["id"])
 
 
