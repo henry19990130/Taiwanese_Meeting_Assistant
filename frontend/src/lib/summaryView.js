@@ -3,7 +3,8 @@ import { api } from "../composables/useApi.js";
 import { $, downloadBlob, el, fmtDate, fmtMD, fmtMs, safeName, stamp } from "./dom.js";
 import { firstTime, segmentTimes } from "./flow.js";
 import { evidence, jumpTo } from "./jump.js";
-import { drawShareImage } from "./shareImage.js";
+import { drawSummaryCardsImage } from "./image/summaryCardsImage.js";
+import { adaptSummaryForImage } from "./image/imageAdapter.js";
 import { exportDeck } from "./deckView.js";
 import { views } from "../views.js";
 
@@ -250,10 +251,27 @@ export function mountSummary() {
   summaryBound = true;
   $("saveImageBtn").addEventListener("click", () => {
     if (!meeting.summary) return;
-    const canvas = drawShareImage(meeting.summary);
-    canvas.toBlob((blob) => {
-      if (blob) downloadBlob(blob, `會議快照_${safeName(meeting.summary.summary.meeting_name)}_${stamp(meeting.summary.updated_at)}.png`);
-    }, "image/png");
+    const button = $("saveImageBtn");
+    if (button.disabled) return;
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    try {
+      const imageData = adaptSummaryForImage(meeting.summary);
+      const validation = imageData.summary.image_validation;
+      if (!validation.render_ready) {
+        console.warn("會議快照資料驗證警告", validation.warnings);
+      }
+      const canvas = drawSummaryCardsImage(imageData);
+      canvas.toBlob((blob) => {
+        if (blob) downloadBlob(blob, `會議快照_${safeName(imageData.summary.meeting_name)}_${stamp(imageData.updated_at)}.png`);
+        button.disabled = false;
+        button.removeAttribute("aria-busy");
+      }, "image/png");
+    } catch (error) {
+      console.error("產生會議快照失敗", error);
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
   });
   $("deckBtn").addEventListener("click", () => exportDeck());
   $("downloadSummaryBtn").addEventListener("click", async () => {
