@@ -114,9 +114,7 @@ jobs:
               <key>compileBitcode</key>
               <false/>
               <key>signingStyle</key>
-              <string>manual</string>
-              <key>signingCertificate</key>
-              <string>Sign to Run Locally</string>
+              <string>automatic</string>
               <key>provisioningProfiles</key>
               <dict/>
           </dict>
