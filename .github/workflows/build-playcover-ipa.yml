@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 45
 
     env:
-      WORKSPACE_PATH: ios/App/App.xcworkspace
+      WORKSPACE_PATH: ios/App/App.xcodeproj/project.xcworkspace
       SCHEME: App
       CONFIGURATION: ${{ github.event.inputs.configuration || 'Release' }}
 
@@ -76,7 +76,7 @@ jobs:
       - name: Resolve Swift Package dependencies
         working-directory: ios/App
         run: |
-          xcodebuild -workspace App.xcworkspace \
+          xcodebuild -workspace App.xcodeproj/project.xcworkspace \
             -scheme App \
             -resolvePackageDependencies \
             -configuration ${{ env.CONFIGURATION }}
@@ -85,7 +85,7 @@ jobs:
         working-directory: ios/App
         run: |
           mkdir -p "${{ env.BUILD_DIR }}"
-          xcodebuild -workspace App.xcworkspace \
+          xcodebuild -workspace App.xcodeproj/project.xcworkspace \
             -scheme App \
             -configuration ${{ env.CONFIGURATION }} \
             -destination 'generic/platform=iOS' \
