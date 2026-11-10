@@ -100,37 +100,26 @@ jobs:
             DEVELOPMENT_TEAM="" \
             | xcpretty || exit ${PIPESTATUS[0]}
 
-      - name: Create ExportOptions.plist (Ad-hoc)
+      - name: Create IPA from Archive (No Code Signing)
         run: |
-          cat > "${{ env.BUILD_DIR }}/ExportOptions.plist" << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-              <key>method</key>
-              <string>ad-hoc</string>
-              <key>stripSwiftSymbols</key>
-              <true/>
-              <key>compileBitcode</key>
-              <false/>
-              <key>signingStyle</key>
-              <string>automatic</string>
-              <key>provisioningProfiles</key>
-              <dict/>
-          </dict>
-          </plist>
-          EOF
+          # Extract .app from archive and package as IPA manually
+          APP_PATH="${{ env.ARCHIVE_PATH }}/Products/Applications/App.app"
+          if [ ! -d "$APP_PATH" ]; then
+            echo "App not found in archive!"
+            find "${{ env.ARCHIVE_PATH }}" -name "*.app" -type d
+            exit 1
+          fi
+          echo "Found App at: $APP_PATH"
 
-      - name: Export IPA (Ad-hoc - works on PlayCover)
-        working-directory: ios/App
-        run: |
-          xcodebuild -exportArchive \
-            -archivePath "${{ env.ARCHIVE_PATH }}" \
-            -exportPath "${{ env.EXPORT_PATH }}" \
-            -exportOptionsPlist "${{ env.BUILD_DIR }}/ExportOptions.plist" \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGN_IDENTITY="" \
-            | xcpretty || exit ${PIPESTATUS[0]}
+          # Create IPA structure
+          mkdir -p "${{ env.EXPORT_PATH }}/Payload"
+          ditto "$APP_PATH" "${{ env.EXPORT_PATH }}/Payload/App.app"
+
+          # Package as IPA
+          cd "${{ env.EXPORT_PATH }}"
+          zip -r "MeetSum-PlayCover.ipa" Payload
+
+          echo "IPA created at ${{ env.EXPORT_PATH }}/MeetSum-PlayCover.ipa"
 
       - name: Verify IPA
         run: |
