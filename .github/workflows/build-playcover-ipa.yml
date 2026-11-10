@@ -44,10 +44,9 @@ jobs:
         with:
           node-version: '20'
           cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
+          cache-dependency-path: package-lock.json
 
-      - name: Install frontend dependencies
-        working-directory: frontend
+      - name: Install dependencies
         run: npm ci
 
       - name: Build frontend (production)
@@ -60,7 +59,6 @@ jobs:
         run: npm install -g @capacitor/cli@5
 
       - name: Sync Capacitor iOS
-        working-directory: frontend
         run: npx cap sync ios
 
       - name: Setup Xcode
