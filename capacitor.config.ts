@@ -3,7 +3,7 @@ import type { CapacitorConfig } from '@capacitor/cli';
 const config: CapacitorConfig = {
   appId: 'com.meetsum.app',
   appName: '覓聲 MeetSum',
-  webDir: 'dist',
+  webDir: 'frontend/dist',
   // server.url 故意留空：iOS 原生建構需載入本地檔案
   // 僅在開發時使用 live reload 才設定 server.url
   // server: {
