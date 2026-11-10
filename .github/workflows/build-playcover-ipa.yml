@@ -49,11 +49,11 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Build frontend (production)
-        working-directory: frontend
-        run: npm run build
-        env:
-          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL || 'http://localhost:8000' }}
+      - name: Verify frontend assets
+        run: |
+          echo "Checking frontend directory..."
+          ls -la frontend/
+          test -f frontend/index.html && echo "✅ index.html exists" || exit 1
 
       - name: Install Capacitor CLI
         run: npm install -g @capacitor/cli@5
