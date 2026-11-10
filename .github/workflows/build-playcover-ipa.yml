@@ -31,8 +31,6 @@ jobs:
       CONFIGURATION: ${{ github.event.inputs.configuration || 'Release' }}
 
 
-
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -56,6 +54,7 @@ jobs:
           test -f frontend/index.html && echo "✅ index.html exists" || exit 1
 
       - name: Build Frontend (Vite - injects VITE_API_BASE_URL)
+        working-directory: frontend
         env:
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL || 'http://localhost:8000' }}
         run: npm run build
@@ -63,8 +62,8 @@ jobs:
       - name: Verify build output
         run: |
           echo "Checking dist directory..."
-          ls -la dist/
-          test -f dist/index.html && echo "✅ dist/index.html exists" || exit 1
+          ls -la frontend/dist/
+          test -f frontend/dist/index.html && echo "✅ dist/index.html exists" || exit 1
 
       - name: Install Capacitor CLI
         run: npm install -g @capacitor/cli@5
@@ -87,29 +86,13 @@ jobs:
       - name: Resolve Swift Package dependencies
         working-directory: ios/App
         run: |
-          xcodebuild -workspace App.xcodeproj/project.xcworkspace \
-            -scheme App \
-            -resolvePackageDependencies \
-            -configuration ${{ env.CONFIGURATION }}
+          xcodebuild -workspace App.xcodeproj/project.xcworkspace             -scheme App             -resolvePackageDependencies             -configuration ${{ env.CONFIGURATION }}
 
       - name: Build and Archive (No Code Signing for PlayCover)
         working-directory: ios/App
         run: |
           mkdir -p "${{ env.BUILD_DIR }}"
-          xcodebuild -workspace App.xcodeproj/project.xcworkspace \
-            -scheme App \
-            -configuration ${{ env.CONFIGURATION }} \
-            -destination 'generic/platform=iOS' \
-            -archivePath "${{ env.ARCHIVE_PATH }}" \
-            -derivedDataPath "${{ env.BUILD_DIR }}/DerivedData" \
-            clean archive \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            PROVISIONING_PROFILE="" \
-            PROVISIONING_PROFILE_SPECIFIER="" \
-            DEVELOPMENT_TEAM="" \
-            | xcpretty || exit ${PIPESTATUS[0]}
+          xcodebuild -workspace App.xcodeproj/project.xcworkspace             -scheme App             -configuration ${{ env.CONFIGURATION }}             -destination 'generic/platform=iOS'             -archivePath "${{ env.ARCHIVE_PATH }}"             -derivedDataPath "${{ env.BUILD_DIR }}/DerivedData"             clean archive             CODE_SIGNING_ALLOWED=NO             CODE_SIGN_IDENTITY=""             CODE_SIGNING_REQUIRED=NO             PROVISIONING_PROFILE=""             PROVISIONING_PROFILE_SPECIFIER=""             DEVELOPMENT_TEAM=""             | xcpretty || exit ${PIPESTATUS[0]}
 
       - name: Create IPA from Archive (No Code Signing)
         run: |

@@ -4,15 +4,15 @@ import { resolve } from 'path'
 
 export default defineConfig({
   plugins: [vue()],
-  root: 'frontend',
+  root: '.',
   build: {
-    outDir: '../dist',
+    outDir: 'dist',
     sourcemap: false,
     minify: 'esbuild',
     emptyOutDir: true,
     rollupOptions: {
       input: {
-        main: resolve(__dirname, 'frontend/index.html'),
+        main: resolve(__dirname, 'index.html'),
       },
     },
   },
