@@ -29,9 +29,9 @@ jobs:
       WORKSPACE_PATH: ios/App/App.xcworkspace
       SCHEME: App
       CONFIGURATION: ${{ github.event.inputs.configuration || 'Release' }}
-      BUILD_DIR: ${{ runner.temp }}/build
-      ARCHIVE_PATH: ${{ runner.temp }}/build/App.xcarchive
-      EXPORT_PATH: ${{ runner.temp }}/build/ipa
+
+
+
 
     steps:
       - name: Checkout repository
@@ -67,6 +67,13 @@ jobs:
         uses: maxim-lobanov/setup-xcode@v1
         with:
           xcode-version: '16.0'
+
+      - name: Setup build directories
+        run: |
+          echo "BUILD_DIR=${{ runner.temp }}/build" >> $GITHUB_ENV
+          echo "ARCHIVE_PATH=${{ runner.temp }}/build/App.xcarchive" >> $GITHUB_ENV
+          echo "EXPORT_PATH=${{ runner.temp }}/build/ipa" >> $GITHUB_ENV
+          mkdir -p "${{ runner.temp }}/build"
 
       - name: Resolve Swift Package dependencies
         working-directory: ios/App
