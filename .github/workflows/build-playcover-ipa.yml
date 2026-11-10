@@ -1,0 +1,192 @@
+name: Build PlayCover IPA
+
+on:
+  push:
+    branches: [apple]
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      configuration:
+        type: choice
+        description: 'Build configuration'
+        options: [Debug, Release]
+        default: Release
+      upload_release:
+        type: boolean
+        description: 'Upload to GitHub Release (on tag push)'
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-ipa:
+    name: Build IPA for PlayCover
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    env:
+      WORKSPACE_PATH: ios/App/App.xcworkspace
+      SCHEME: App
+      CONFIGURATION: ${{ github.event.inputs.configuration || 'Release' }}
+      BUILD_DIR: ${{ runner.temp }}/build
+      ARCHIVE_PATH: ${{ runner.temp }}/build/App.xcarchive
+      EXPORT_PATH: ${{ runner.temp }}/build/ipa
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend (production)
+        working-directory: frontend
+        run: npm run build
+        env:
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL || 'http://localhost:8000' }}
+
+      - name: Install Capacitor CLI
+        run: npm install -g @capacitor/cli@5
+
+      - name: Sync Capacitor iOS
+        working-directory: frontend
+        run: npx cap sync ios
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.0'
+
+      - name: Resolve Swift Package dependencies
+        working-directory: ios/App
+        run: |
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -resolvePackageDependencies \
+            -configuration ${{ env.CONFIGURATION }}
+
+      - name: Build and Archive (No Code Signing for PlayCover)
+        working-directory: ios/App
+        run: |
+          mkdir -p "${{ env.BUILD_DIR }}"
+          xcodebuild -workspace App.xcworkspace \
+            -scheme App \
+            -configuration ${{ env.CONFIGURATION }} \
+            -destination 'generic/platform=iOS' \
+            -archivePath "${{ env.ARCHIVE_PATH }}" \
+            -derivedDataPath "${{ env.BUILD_DIR }}/DerivedData" \
+            clean archive \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            PROVISIONING_PROFILE="" \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            DEVELOPMENT_TEAM="" \
+            | xcpretty || exit ${PIPESTATUS[0]}
+
+      - name: Create ExportOptions.plist (Ad-hoc)
+        run: |
+          cat > "${{ env.BUILD_DIR }}/ExportOptions.plist" << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>ad-hoc</string>
+              <key>stripSwiftSymbols</key>
+              <true/>
+              <key>compileBitcode</key>
+              <false/>
+              <key>signingStyle</key>
+              <string>manual</string>
+              <key>signingCertificate</key>
+              <string>Sign to Run Locally</string>
+              <key>provisioningProfiles</key>
+              <dict/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Export IPA (Ad-hoc - works on PlayCover)
+        working-directory: ios/App
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "${{ env.ARCHIVE_PATH }}" \
+            -exportPath "${{ env.EXPORT_PATH }}" \
+            -exportOptionsPlist "${{ env.BUILD_DIR }}/ExportOptions.plist" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | xcpretty || exit ${PIPESTATUS[0]}
+
+      - name: Verify IPA
+        run: |
+          IPA_FILE=$(find "${{ env.EXPORT_PATH }}" -name "*.ipa" | head -1)
+          if [ -z "$IPA_FILE" ]; then
+            echo "❌ IPA not found!"
+            ls -la "${{ env.EXPORT_PATH }}"
+            exit 1
+          fi
+          echo "✅ IPA found: $IPA_FILE"
+          echo "IPA_PATH=$IPA_FILE" >> $GITHUB_ENV
+          echo "IPA_SIZE=$(stat -f%z "$IPA_FILE")" >> $GITHUB_ENV
+          unzip -l "$IPA_FILE" | head -30
+
+      - name: Upload IPA as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: meetsum-playcover-ipa
+          path: ${{ env.EXPORT_PATH }}/*.ipa
+          retention-days: 30
+
+      - name: Create Release and Upload IPA
+        if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && github.event.inputs.upload_release != 'false'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          name: "覓聲 MeetSum ${{ github.ref_name }} - PlayCover IPA"
+          body: |
+            ## 📱 PlayCover 專用 IPA
+            此 IPA 為 **無簽名/Ad-hoc 簽名** 版本，專為 **PlayCover** 設計。
+
+            ### 安裝方式
+            1. 下載 `MeetSum-PlayCover.ipa`
+            2. 拖入 PlayCover 視窗或使用 `File > Open` 安裝
+            3. 在 PlayCover 中雙擊啟動
+
+            ### 注意事項
+            - ⚠️ **不適用於真實 iOS 裝置** (需有效簽名)
+            - ✅ 適用於 PlayCover / 模擬器 / Apple Silicon Mac
+            - 🔧 後端 API: `${{ secrets.VITE_API_BASE_URL || 'http://localhost:8000' }}`
+            - 📦 建構配置: ${{ env.CONFIGURATION }}
+
+            ### 系統需求
+            - macOS 13+ (Apple Silicon M1/M2/M3)
+            - PlayCover 最新版
+          files: |
+            ${{ env.EXPORT_PATH }}/*.ipa
+          draft: false
+          prerelease: ${{ contains(github.ref_name, 'beta') || contains(github.ref_name, 'alpha') }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Summary
+        run: |
+          echo "## 📦 Build Summary" >> $GITHUB_STEP_SUMMARY
+          echo "- **Branch**: ${{ github.ref_name }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Configuration**: ${{ env.CONFIGURATION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **IPA Size**: ${{ env.IPA_SIZE }} bytes" >> $GITHUB_STEP_SUMMARY
+          echo "- **Artifact**: [Download from Actions](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "- **Release**: [GitHub Releases](https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }})" >> $GITHUB_STEP_SUMMARY
+          fi
