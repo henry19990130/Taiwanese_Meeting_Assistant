@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "build": "vite build --config frontend/vite.config.js",
+    "build:ios": "VITE_API_BASE_URL=http://localhost:8000 vite build --config frontend/vite.config.js"
   },
   "repository": {
     "type": "git",

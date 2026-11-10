@@ -55,6 +55,17 @@ jobs:
           ls -la frontend/
           test -f frontend/index.html && echo "✅ index.html exists" || exit 1
 
+      - name: Build Frontend (Vite - injects VITE_API_BASE_URL)
+        env:
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL || 'http://localhost:8000' }}
+        run: npm run build
+
+      - name: Verify build output
+        run: |
+          echo "Checking dist directory..."
+          ls -la dist/
+          test -f dist/index.html && echo "✅ dist/index.html exists" || exit 1
+
       - name: Install Capacitor CLI
         run: npm install -g @capacitor/cli@5
 

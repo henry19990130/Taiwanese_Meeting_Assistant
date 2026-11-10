@@ -3,12 +3,13 @@ import type { CapacitorConfig } from '@capacitor/cli';
 const config: CapacitorConfig = {
   appId: 'com.meetsum.app',
   appName: '覓聲 MeetSum',
-  webDir: 'frontend',
-  server: {
-    url: 'https://api.meetsum.example.com',  // 生產環境 API
-    cleartext: false,                         // HTTPS only
-    // 開發時可改為 localhost:8000，cleartext: true
-  },
+  webDir: 'dist',
+  // server.url 故意留空：iOS 原生建構需載入本地檔案
+  // 僅在開發時使用 live reload 才設定 server.url
+  // server: {
+  //   url: 'http://localhost:5173',
+  //   cleartext: true,
+  // },
   ios: {
     scheme: 'meetsum',
     contentInset: 'automatic',
