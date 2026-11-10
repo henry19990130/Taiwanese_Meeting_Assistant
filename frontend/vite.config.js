@@ -4,7 +4,8 @@ import { resolve } from 'path'
 
 export default defineConfig({
   plugins: [vue()],
-  root: '.',
+  // 明確指定 frontend 目錄為 root
+  root: resolve(__dirname),
   build: {
     outDir: 'dist',
     sourcemap: false,
@@ -14,10 +15,17 @@ export default defineConfig({
       input: {
         main: resolve(__dirname, 'index.html'),
       },
+      external: ['../../meetsum-local-asr/src/index.ts'],
     },
   },
   define: {
     'import.meta.env.VITE_API_BASE_URL': JSON.stringify(process.env.VITE_API_BASE_URL || 'http://localhost:8000'),
+  },
+  resolve: {
+    extensions: ['.js', '.ts', '.vue', '.json'],
+    alias: {
+      '@/meetsum-local-asr': resolve(__dirname, '../meetsum-local-asr/src'),
+    },
   },
   server: {
     port: 5173,
@@ -27,5 +35,8 @@ export default defineConfig({
         changeOrigin: true,
       },
     },
+  },
+  esbuild: {
+    target: 'ES2020',
   },
 })
