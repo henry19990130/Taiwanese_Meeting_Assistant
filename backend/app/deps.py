@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import Cookie, Depends, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from app.db import get_conn
@@ -21,14 +21,17 @@ def client_ip(request: Request) -> str:
     return client.host
 
 
+def access_digest(token: str) -> str:
+    return hash_token(f"access:{token}")
+
+
 def get_current_user(
     cred: HTTPAuthorizationCredentials | None = Depends(_bearer),
-    session: str | None = Cookie(default=None),
 ) -> dict:
-    token = cred.credentials if cred is not None and cred.credentials else session
+    token = cred.credentials if cred is not None and cred.credentials else ""
     if not token:
         raise api_error(status.HTTP_401_UNAUTHORIZED, "NOT_LOGGED_IN", "請先登入")
-    token_hash = hash_token(token)
+    token_hash = access_digest(token)
     with get_conn() as conn:
         session = sessions.get_valid_session(conn, token_hash)
     if session is None:

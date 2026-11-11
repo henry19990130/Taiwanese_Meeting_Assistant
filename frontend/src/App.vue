@@ -1,7 +1,7 @@
 <script setup>
-import { computed, nextTick, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { session } from "./state.js";
-import { displayName, logout, setAuthHooks } from "./composables/useAuth.js";
+import { displayName, logout, restoreSession, setAuthHooks } from "./composables/useAuth.js";
 import { afterEnter, haltMeeting } from "./composables/useMeeting.js";
 import { loadInfo } from "./composables/useDesk.js";
 import LoginView from "./components/LoginView.vue";
@@ -38,6 +38,10 @@ setAuthHooks({
 watch(() => session.entered, (on) => {
   document.body.classList.toggle("login-mode", !on);
 }, { immediate: true });
+
+onMounted(() => {
+  restoreSession();
+});
 </script>
 
 <template>

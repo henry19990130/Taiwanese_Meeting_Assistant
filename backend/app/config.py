@@ -87,4 +87,6 @@ MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "500"))
 FRONTEND_DIR = PROJECT_DIR / "frontend"
 
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "28800"))
+ACCESS_TTL_SECONDS = 60 * 60
+REFRESH_TTL_SECONDS = 30 * 24 * 60 * 60
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").strip().lower() in ("1", "true", "yes")

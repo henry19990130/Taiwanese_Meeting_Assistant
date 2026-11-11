@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.db import get_conn
 from app.deps import api_error, get_current_user
-from app.security.rate_limit import limit_assistant
+from app.security.rate_limit import limit_assistant, limit_meeting_read
 
 log = logging.getLogger(__name__)
 from app.repositories import library
@@ -37,7 +37,8 @@ class ChatBody(BaseModel):
 
 
 @router.get("/overview")
-def overview(user: dict = Depends(get_current_user)) -> dict:
+def overview(request: Request, user: dict = Depends(get_current_user)) -> dict:
+    limit_meeting_read(request, user)
     lib = _lib(user)
     return {
         "meeting_count": len(lib),
@@ -49,15 +50,17 @@ def overview(user: dict = Depends(get_current_user)) -> dict:
 
 
 @router.get("/meetings")
-def find_meetings(q: str | None = Query(None, max_length=100), period: str | None = Query(None, max_length=40),
+def find_meetings(request: Request, q: str | None = Query(None, max_length=100), period: str | None = Query(None, max_length=40),
                   person: str | None = Query(None, max_length=40), user: dict = Depends(get_current_user)) -> dict:
+    limit_meeting_read(request, user)
     src = S.Sources()
     r = S.search_meetings(_lib(user), src, today_local(), query=q, period=period, person=person)
     return {**r, "sources": src.items}
 
 
 @router.get("/meetings/{meeting_id}/summary")
-def meeting_summary(meeting_id: str, user: dict = Depends(get_current_user)) -> dict:
+def meeting_summary(meeting_id: str, request: Request, user: dict = Depends(get_current_user)) -> dict:
+    limit_meeting_read(request, user)
     src = S.Sources()
     r = S.get_meeting_summary(_lib(user), src, meeting_id)
     if "error" in r:
@@ -66,15 +69,17 @@ def meeting_summary(meeting_id: str, user: dict = Depends(get_current_user)) -> 
 
 
 @router.get("/actions")
-def actions(assignee: str | None = Query(None, max_length=40), due: str | None = Query(None, max_length=40),
+def actions(request: Request, assignee: str | None = Query(None, max_length=40), due: str | None = Query(None, max_length=40),
             unassigned: bool = False, user: dict = Depends(get_current_user)) -> dict:
+    limit_meeting_read(request, user)
     src = S.Sources()
     r = S.list_action_items(_lib(user), src, today_local(), assignee=assignee, due_period=due, unassigned=unassigned)
     return {**r, "sources": src.items}
 
 
 @router.post("/quote")
-def quote(body: QuoteBody, user: dict = Depends(get_current_user)) -> dict:
+def quote(body: QuoteBody, request: Request, user: dict = Depends(get_current_user)) -> dict:
+    limit_meeting_read(request, user)
     src = S.Sources()
     r = S.find_quote(_lib(user), src, body.text)
     return {**r, "sources": src.items}

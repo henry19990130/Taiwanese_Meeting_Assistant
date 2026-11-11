@@ -136,21 +136,24 @@ class SecurityRulesTest(unittest.TestCase):
         client = self._auth_client(state)
         res = client.post("/api/v1/auth/login", json={"username": "alice", "password": PASSWORD})
         self.assertEqual(res.status_code, 200)
-        self.assertNotIn("access_token", res.json())
-        token = res.cookies["session"]
+        access = res.json()["access_token"]
+        self.assertTrue(access)
+        refresh = res.cookies["session"]
         header = res.headers["set-cookie"].lower()
         self.assertIn("httponly", header)
         self.assertIn("secure", header)
         self.assertIn("samesite=lax", header)
         self.assertIn("path=/", header)
-        self.assertEqual(res.json()["expires_in"], config.SESSION_TTL_SECONDS)
-        stored_hash, stored_user, ttl = state["sessions"][-1]
-        self.assertEqual(stored_hash, hash_token(token))
-        self.assertNotEqual(stored_hash, token)
-        self.assertEqual(len(stored_hash), 64)
-        self.assertEqual(ttl, config.SESSION_TTL_SECONDS)
-        self.assertNotIn(token, _audit_text(self.root))
-        me = client.get("/api/v1/auth/me")
+        self.assertNotIn("access_token", header)
+        self.assertEqual(res.json()["expires_in"], config.ACCESS_TTL_SECONDS)
+        stored = {item[0]: item[2] for item in state["sessions"]}
+        self.assertEqual(stored[hash_token(f"refresh:{refresh}")], config.REFRESH_TTL_SECONDS)
+        self.assertEqual(stored[hash_token(f"access:{access}")], config.ACCESS_TTL_SECONDS)
+        self.assertNotEqual(hash_token(f"refresh:{refresh}"), refresh)
+        self.assertEqual(len(hash_token(f"refresh:{refresh}")), 64)
+        self.assertNotIn(refresh, _audit_text(self.root))
+        self.assertNotIn(access, _audit_text(self.root))
+        me = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {access}"})
         self.assertEqual(me.status_code, 200)
         self.assertEqual(me.json()["username"], "alice")
         out = client.post("/api/v1/auth/logout")
@@ -241,8 +244,11 @@ class SecurityRulesTest(unittest.TestCase):
         self.assertEqual(created.status_code, 200)
         self.assertEqual(created.json()["user"]["display_name"], "王 經理")
         self.assertEqual(state["created"]["bob"]["display_name"], "王 經理")
-        self.assertNotIn("access_token", created.json())
-        me = client.get("/api/v1/auth/me")
+        self.assertTrue(created.json()["access_token"])
+        me = client.get(
+            "/api/v1/auth/me",
+            headers={"Authorization": f"Bearer {created.json()['access_token']}"},
+        )
         self.assertEqual(me.json()["display_name"], "王 經理")
 
     def test_register_endpoint_session_and_exists_message(self):
@@ -256,14 +262,17 @@ class SecurityRulesTest(unittest.TestCase):
         self.assertEqual(bad_name.json()["detail"]["message"], "帳號只允許 3 到 32 碼的英數字或底線")
         self.assertEqual(bad_pw.status_code, 422)
         self.assertEqual(bad_pw.json()["detail"]["message"], "密碼至少 12 碼，而且要同時含英文字母和數字")
-        self.assertEqual(exists.status_code, 409)
-        self.assertEqual(exists.json()["detail"]["message"], "這個帳號已經有人使用")
-        self.assertEqual(race.status_code, 409)
+        self.assertEqual(exists.status_code, 422)
+        self.assertEqual(exists.json()["detail"]["message"], "無法完成註冊，請改用其他帳號或稍後再試")
+        self.assertNotIn("已經有人使用", exists.text)
+        self.assertEqual(race.status_code, 422)
+        self.assertEqual(race.json()["detail"]["message"], "無法完成註冊，請改用其他帳號或稍後再試")
         self.assertNotIn("UniqueViolation", race.text)
         self.assertNotIn(PASSWORD, exists.text + race.text + bad_name.text + bad_pw.text)
         created = client.post("/api/v1/auth/register", json={"username": "new_user", "password": PASSWORD})
         self.assertEqual(created.status_code, 200)
-        self.assertNotIn("access_token", created.json())
+        access = created.json()["access_token"]
+        self.assertTrue(access)
         token = created.cookies["session"]
         header = created.headers["set-cookie"].lower()
         self.assertIn("httponly", header)
@@ -273,11 +282,12 @@ class SecurityRulesTest(unittest.TestCase):
         stored = state["created"]["new_user"]["password_hash"]
         self.assertTrue(stored.startswith("pbkdf2_sha256$260000$"))
         self.assertNotIn(PASSWORD, stored)
-        stored_hash, stored_user, ttl = state["sessions"][-1]
-        self.assertEqual(stored_hash, hash_token(token))
-        self.assertEqual(stored_user, state["created"]["new_user"]["id"])
-        self.assertEqual(ttl, config.SESSION_TTL_SECONDS)
-        me = client.get("/api/v1/auth/me")
+        stored_rows = {item[0]: item for item in state["sessions"]}
+        refresh_row = stored_rows[hash_token(f"refresh:{token}")]
+        self.assertEqual(refresh_row[1], state["created"]["new_user"]["id"])
+        self.assertEqual(refresh_row[2], config.REFRESH_TTL_SECONDS)
+        self.assertEqual(stored_rows[hash_token(f"access:{access}")][2], config.ACCESS_TTL_SECONDS)
+        me = client.get("/api/v1/auth/me", headers={"Authorization": f"Bearer {access}"})
         self.assertEqual(me.json()["username"], "new_user")
         self.assertIsNone(me.json()["display_name"])
         actions = [event["action"] for event in _events(self.root)]
@@ -501,6 +511,9 @@ class SecurityRulesTest(unittest.TestCase):
         self.assertEqual(res.headers["x-frame-options"], "DENY")
         self.assertEqual(res.headers["referrer-policy"], "no-referrer")
         self.assertIn("default-src 'self'", res.headers["content-security-policy"])
+        self.assertNotIn("strict-transport-security", res.headers)
+        secure = TestClient(mini, base_url="https://testserver").get("/x")
+        self.assertIn("max-age=31536000", secure.headers["strict-transport-security"])
 
     def test_login_rate_limit(self):
         from app.security import rate_limit
@@ -596,7 +609,9 @@ class SecurityRulesTest(unittest.TestCase):
             patch("app.routers.auth.users.clear_login_failures", clear_login_failures),
             patch("app.routers.auth.sessions.delete_expired", lambda conn: 0),
             patch("app.routers.auth.sessions.create_session", create_session),
+            patch("app.routers.auth.sessions.get_valid_session", get_valid_session),
             patch("app.routers.auth.sessions.delete_session", lambda conn, token_hash: True),
+            patch("app.routers.auth.sessions.delete_user_sessions", lambda conn, user_id: 1),
             patch("app.deps.get_conn", _conn),
             patch("app.deps.sessions.get_valid_session", get_valid_session),
         ]

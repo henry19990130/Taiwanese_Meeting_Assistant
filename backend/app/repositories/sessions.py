@@ -16,6 +16,7 @@ JOIN users u ON u.id = s.user_id
 WHERE s.token_hash = %s AND s.expires_at > NOW()
 """
 SQL_DELETE = "DELETE FROM sessions WHERE token_hash = %s"
+SQL_DELETE_USER = "DELETE FROM sessions WHERE user_id = %s"
 SQL_DELETE_EXPIRED = "DELETE FROM sessions WHERE expires_at <= NOW()"
 
 
@@ -29,6 +30,10 @@ def get_valid_session(conn, token_hash: str) -> dict | None:
 
 def delete_session(conn, token_hash: str) -> bool:
     return conn.execute(SQL_DELETE, (token_hash,)).rowcount > 0
+
+
+def delete_user_sessions(conn, user_id: UUID | str) -> int:
+    return conn.execute(SQL_DELETE_USER, (as_uuid(user_id),)).rowcount
 
 
 def delete_expired(conn) -> int:

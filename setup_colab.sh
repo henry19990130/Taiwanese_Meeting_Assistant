@@ -10,8 +10,11 @@ mkdir -p logs
 set -a; source <(tr -d '\r' < .env); set +a
 
 DB_USER="${DB_USER:-meeting}"
-DB_PASSWORD="${DB_PASSWORD:-meeting}"
 DB_NAME="${DB_NAME:-meeting_assistant}"
+if [ -z "${DB_PASSWORD:-}" ]; then
+  echo "必須在 .env 設定 DB_PASSWORD"
+  exit 1
+fi
 LLM_MODEL="${LLM_MODEL:-qwen3.8:27b}"
 ASR_ENGINE="${ASR_ENGINE:-hf}"
 
@@ -55,15 +58,22 @@ done
 
 psql_admin() { runuser -u postgres -- psql -v ON_ERROR_STOP=1 -tAc "$1"; }
 
+esc_pass=$(printf '%s' "$DB_PASSWORD" | sed "s/'/''/g")
 if [ "$(psql_admin "SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'")" != "1" ]; then
-  psql_admin "CREATE ROLE ${DB_USER} LOGIN PASSWORD '${DB_PASSWORD}';"
+  psql_admin "CREATE ROLE ${DB_USER} LOGIN PASSWORD '${esc_pass}';"
+else
+  psql_admin "ALTER ROLE ${DB_USER} WITH LOGIN PASSWORD '${esc_pass}';"
 fi
 if [ "$(psql_admin "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'")" != "1" ]; then
   psql_admin "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};"
 fi
 PGPASSWORD="$DB_PASSWORD" psql -q -h localhost -U "$DB_USER" -d "$DB_NAME" \
   -v ON_ERROR_STOP=1 -f database/schema.sql
-python scripts/create_user.py "${DEMO_USERNAME:-demo}" --password "${DEMO_PASSWORD:-demo1234demo1234demo1234}" --reset
+if [ -n "${DEMO_PASSWORD:-}" ]; then
+  python scripts/create_user.py "${DEMO_USERNAME:-demo}" --password "$DEMO_PASSWORD" --reset
+else
+  echo "沒有 DEMO_PASSWORD，略過示範帳號"
+fi
 echo "完成：資料庫 ${DB_NAME}"
 
 step 4 "安裝 Ollama 並下載 ${LLM_MODEL}"

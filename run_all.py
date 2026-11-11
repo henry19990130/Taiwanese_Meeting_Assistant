@@ -146,7 +146,7 @@ sync_code()
 os.chdir(PROJECT_DIR)
 ENV = read_env(os.path.join(PROJECT_DIR, '.env'))
 DEMO_USER = ENV.get('DEMO_USERNAME') or 'demo'
-DEMO_PASS = ENV.get('DEMO_PASSWORD') or 'demo1234demo1234demo1234'
+DEMO_PASS = ENV.get('DEMO_PASSWORD') or ''
 
 if not os.environ.get('HF_TOKEN') and ENV.get('HF_TOKEN'):
     os.environ['HF_TOKEN'] = ENV['HF_TOKEN']
@@ -217,7 +217,9 @@ if 'setup' in STEPS:
 
 if 'seed' in STEPS and SEED_DEMO:
     step('③ 放入模擬會議')
-    if sh([sys.executable, '../scripts/seed_demo_meetings.py', '--user', DEMO_USER], cwd=BACKEND_DIR) != 0:
+    if not DEMO_PASS:
+        print('沒有 DEMO_PASSWORD，略過模擬會議')
+    elif sh([sys.executable, '../scripts/seed_demo_meetings.py', '--user', DEMO_USER], cwd=BACKEND_DIR) != 0:
         print('⚠️ 模擬會議沒有放成功（不影響其他功能），看上面訊息')
 
 
@@ -246,7 +248,7 @@ if 'backend' in STEPS:
         with open(os.path.join(LOG_DIR, 'backend.log'), encoding='utf-8', errors='replace') as f:
             print(''.join(f.readlines()[-30:]))
         raise RuntimeError('❌ 後端沒有啟動成功，上面是 log 最後 30 行')
-    print(f'✅ 後端已啟動（帳號 {DEMO_USER} / 密碼 {DEMO_PASS}）')
+    print('✅ 後端已啟動（示範帳號密碼在 .env，畫面不顯示）' if DEMO_PASS else '✅ 後端已啟動')
     print(f"   LLM：{health.get('llm_model')}　溫度 {health.get('llm_temperature')}　seed {health.get('llm_seed')}"
           f"　思考 {health.get('llm_think')}　上下文 {health.get('llm_num_ctx')}")
 
@@ -307,7 +309,7 @@ if 'tunnel' in STEPS and USE_TUNNEL:
 step('完成')
 if 'tunnel' in STEPS and PUBLIC_URL:
     print('👉 用瀏覽器打開：', PUBLIC_URL)
-    print(f'   帳號 {DEMO_USER} / 密碼 {DEMO_PASS}')
+    print('   登入密碼在 .env 的 DEMO_PASSWORD，這裡不顯示')
     print('   ※ 若顯示「無法連上這個網站」：等 30 秒後重新整理；仍不行，在 Windows 命令提示字元執行')
     print('     ipconfig /flushdns 再重新整理（電腦記住了「查不到」的結果）')
     print('   ※ 每次重跑都會換新網址，舊網址會失效')

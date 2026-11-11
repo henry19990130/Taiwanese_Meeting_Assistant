@@ -1,6 +1,6 @@
 import { nextTick } from "vue";
 import { session } from "../state.js";
-import { api } from "./useApi.js";
+import { api, refreshAccess } from "./useApi.js";
 import { views } from "../views.js";
 
 const hooks = {
@@ -26,8 +26,17 @@ export function passwordOk(password) {
   return password.length >= 12 && password.length <= 200 && /[A-Za-z]/.test(password) && /[0-9]/.test(password);
 }
 
+export async function restoreSession() {
+  if (session.token) return;
+  const ok = await refreshAccess();
+  if (!ok) return;
+  await hooks.beforeShow(displayName());
+  session.entered = true;
+  await hooks.afterShow();
+}
+
 export async function enterRoom(data, form) {
-  session.token = null;
+  session.token = data.access_token || null;
   session.user = data.user;
   form?.reset();
   await hooks.beforeShow(displayName());

@@ -7,7 +7,9 @@ from fastapi import APIRouter, Depends, File, Form, Request, Response, UploadFil
 from pydantic import BaseModel, Field
 
 from app.deps import api_error, client_ip, get_current_user
-from app.security.rate_limit import limit_summary, limit_upload
+from app.security.rate_limit import (
+    limit_delete_meeting, limit_meeting_read, limit_proofread, limit_summary, limit_upload,
+)
 from app.services import asr_models
 from app.services import meeting_service as svc
 
@@ -125,6 +127,7 @@ def list_asr_languages() -> dict:
 
 @router.delete("/{meeting_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_meeting(meeting_id: str, request: Request, user: dict = Depends(get_current_user)) -> Response:
+    limit_delete_meeting(request, user)
     _call(lambda: svc.delete_owned_meeting(_parse_id(meeting_id), actor=user, ip=client_ip(request)))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -140,6 +143,7 @@ def _parse_time(value: str | None, field: str) -> dt.time | None:
 
 @router.get("/{meeting_id}/status")
 def get_status(meeting_id: str, request: Request, user: dict = Depends(get_current_user)) -> dict:
+    limit_meeting_read(request, user)
     m = _call(lambda: svc.get_meeting(_parse_id(meeting_id), actor=user, ip=client_ip(request)))
     return {
         "meeting_id": str(m["id"]),
@@ -153,6 +157,7 @@ def get_status(meeting_id: str, request: Request, user: dict = Depends(get_curre
 
 @router.get("/{meeting_id}/transcript")
 def get_transcript(meeting_id: str, request: Request, user: dict = Depends(get_current_user)) -> dict:
+    limit_meeting_read(request, user)
     return _call(lambda: svc.get_transcript(_parse_id(meeting_id), actor=user, ip=client_ip(request)))
 
 
@@ -175,11 +180,13 @@ class SegmentEdit(BaseModel):
 
 @router.get("/{meeting_id}/proofread")
 def get_proofread(meeting_id: str, request: Request, user: dict = Depends(get_current_user)) -> dict:
+    limit_meeting_read(request, user)
     return _call(lambda: svc.get_proofread(_parse_id(meeting_id), actor=user, ip=client_ip(request)))
 
 
 @router.post("/{meeting_id}/proofread", status_code=status.HTTP_202_ACCEPTED)
 def rerun_proofread(meeting_id: str, request: Request, user: dict = Depends(get_current_user)) -> dict:
+    limit_proofread(request, user)
     m = _call(lambda: svc.request_proofread(_parse_id(meeting_id), actor=user, ip=client_ip(request)))
     return {"meeting_id": str(m["id"]), "status": m["status"], "status_url": _status_url(m["id"])}
 
@@ -234,6 +241,7 @@ def generate_summary(meeting_id: str, request: Request, body: SummaryRequest | N
 
 @router.get("/{meeting_id}/summary")
 def get_summary(meeting_id: str, request: Request, user: dict = Depends(get_current_user)) -> dict:
+    limit_meeting_read(request, user)
     m, s = _call(lambda: svc.get_summary(_parse_id(meeting_id), actor=user, ip=client_ip(request)))
     return {
         "meeting_id": str(m["id"]),

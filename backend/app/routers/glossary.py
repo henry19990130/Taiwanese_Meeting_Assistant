@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import uuid
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from pydantic import BaseModel, Field
 
 from app.db import get_conn
 from app.deps import api_error, get_current_user
+from app.security.rate_limit import limit_glossary
 from app.repositories import terms
 
 router = APIRouter(prefix="/api/v1/glossary", tags=["glossary"])
@@ -26,13 +27,15 @@ def _view(rows: list[dict]) -> dict:
 
 
 @router.get("")
-def list_glossary(user: dict = Depends(get_current_user)) -> dict:
+def list_glossary(request: Request, user: dict = Depends(get_current_user)) -> dict:
+    limit_glossary(request, user)
     with get_conn(user["id"]) as conn:
         return _view(terms.list_terms(conn, user["id"]))
 
 
 @router.post("")
-def add_glossary(body: AddTerms, user: dict = Depends(get_current_user)) -> dict:
+def add_glossary(body: AddTerms, request: Request, user: dict = Depends(get_current_user)) -> dict:
+    limit_glossary(request, user)
     with get_conn(user["id"]) as conn:
         result = terms.add_terms(conn, user["id"], body.terms)
         rows = terms.list_terms(conn, user["id"])
@@ -40,7 +43,8 @@ def add_glossary(body: AddTerms, user: dict = Depends(get_current_user)) -> dict
 
 
 @router.delete("/{term_id}", status_code=status.HTTP_200_OK)
-def delete_glossary(term_id: str, user: dict = Depends(get_current_user)) -> dict:
+def delete_glossary(term_id: str, request: Request, user: dict = Depends(get_current_user)) -> dict:
+    limit_glossary(request, user)
     try:
         tid = uuid.UUID(term_id)
     except ValueError:
