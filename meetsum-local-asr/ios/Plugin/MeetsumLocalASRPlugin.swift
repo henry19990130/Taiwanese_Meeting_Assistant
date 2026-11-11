@@ -492,9 +492,9 @@ public class MeetsumLocalASRPlugin: CAPPlugin, CAPBridgedPlugin {
 
         let language = call.getString("language") ?? "zh"
         let enableDiarization = call.getBool("enableDiarization") ?? true
-        let modelSize = call.getString("modelSize") ?? "large-v3-v20240930_626MB"
-        let quantization = call.getString("quantization") ?? "q4_k"
-        let engineType = call.getString("engine") ?? "whisperkit"  // whisperkit | breezeasr
+        let modelSize = call.getString("modelSize") ?? "breeze-asr-26-coreml"
+        let quantization = call.getString("quantization") ?? "4bit"
+        let engineType = call.getString("engine") ?? (modelSize.hasPrefix("breeze") ? "breezeasr" : "whisperkit")
         let useVad = call.getBool("useVad") ?? true
         let vadThreshold = call.getDouble("vadThreshold") ?? 0.5
 
@@ -593,12 +593,11 @@ public class MeetsumLocalASRPlugin: CAPPlugin, CAPBridgedPlugin {
         supportsNeuralEngine = ProcessInfo.processInfo.isiOSAppOnMac || (totalMemory >= 6 * 1024 * 1024 * 1024) // 簡易判斷
         #endif
 
-        // 推薦模型大小
+        // 推薦模型：本機模式預設用 Breeze-ASR-26（台語／華語／客語）；
+        // 記憶體較少的舊裝置退回 small，避免載入時被系統砍掉。
         let recommendedModel: String
-        if totalMemoryMB >= 6144 { // 6GB+
-            recommendedModel = "large-v3-turbo"
-        } else if totalMemoryMB >= 4096 { // 4GB+
-            recommendedModel = "medium"
+        if totalMemoryMB >= 4096 {
+            recommendedModel = "breeze-asr-26-coreml"
         } else {
             recommendedModel = "small"
         }

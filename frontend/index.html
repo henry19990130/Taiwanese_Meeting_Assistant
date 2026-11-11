@@ -41,6 +41,7 @@
       <span id="userName"></span>
       <button class="btn ghost small" id="serverBtnTop" type="button" title="設定後端伺服器位址">伺服器…</button>
       <button class="btn ghost small" id="switchModeBtn" type="button" title="切換本機／雲端模式">切換模式</button>
+      <button class="btn ghost small" id="historyBtnTop" type="button" title="裝置上的會議紀錄與備份">會議紀錄</button>
       <button class="btn ghost small" id="logoutBtn" type="button">登出</button>
     </div>
   </header>
@@ -405,6 +406,22 @@
     <p class="hint" id="mdDevice">本機模式會把 ASR 與摘要模型下載到這台裝置；不下載也能登入使用雲端模式。</p>
     <div class="model-list" id="mdList"></div>
     <p class="gd-msg" id="mdMsg" hidden></p>
+  </dialog>
+
+  <dialog class="glossary-dialog" id="historyDialog">
+    <div class="gd-head">
+      <h2>裝置上的會議</h2>
+      <button class="btn ghost small" id="hdClose" type="button">關閉</button>
+    </div>
+    <p class="hint">不論本機或雲端模式，辨識與摘要完成後都會存一份在這台裝置。Colab 關掉、換網址也還在。</p>
+    <div class="gd-actions">
+      <button class="btn ghost small" id="hdExport" type="button">匯出備份</button>
+      <label class="btn ghost small" for="hdImport">還原備份
+        <input id="hdImport" type="file" accept="application/json,.json" hidden>
+      </label>
+    </div>
+    <ul class="model-list" id="hdList"></ul>
+    <p class="gd-msg" id="hdMsg" hidden></p>
   </dialog>
 
   <div id="printDeck" aria-hidden="true"></div>

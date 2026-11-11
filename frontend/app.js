@@ -312,6 +312,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   setupModeControls();
   setupGoogleLogin();
   setupDeepLink();
+  setupHistoryControls();
   // 與 initCapacitor 分開，避免初始化失敗連帶跳過登入狀態還原
   try {
     await loadStoredAuth();
@@ -681,6 +682,148 @@ function updateModelProgressUI(ev) {
     if (b) b.textContent = `下載中… ${pct}%`;
   }
 }
+
+// ---------------------------------------------------------------------------
+// 裝置上的會議紀錄與備份
+//
+// local-first 的重點不是「有沒有存」，而是「存了之後找得回來」。
+// 這裡列出 Store 裡的會議，後端不在線也能打開逐字稿與重點。
+// ---------------------------------------------------------------------------
+function hdMsg(text, isError = false) {
+  const box = $("hdMsg");
+  if (!box) return;
+  box.textContent = text;
+  box.hidden = !text;
+  box.classList.toggle("warn", !!isError);
+}
+
+function fmtHistoryTime(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+async function showMeetingHistory() {
+  const dlg = $("historyDialog");
+  if (!dlg || !window.Store) return;
+  hdMsg("");
+  const list = $("hdList");
+  list.replaceChildren(el("p", "empty", "讀取中…"));
+  if (typeof dlg.showModal === "function" && !dlg.open) dlg.showModal();
+
+  let meetings = [];
+  try { meetings = await Store.meetings.list(); }
+  catch (err) { list.replaceChildren(el("p", "empty", `讀取失敗：${err.message}`)); return; }
+
+  list.replaceChildren();
+  if (!meetings.length) {
+    list.append(el("p", "empty", "這台裝置還沒有任何會議。完成一次辨識或摘要後就會出現在這裡。"));
+    return;
+  }
+  for (const m of meetings) {
+    const id = m.id;
+    const row = el("div", "hd-row is-open");
+    row.tabIndex = 0;
+    row.append(el("div", "hd-title", m.meeting_name || m.name || "未命名會議"));
+    const meta = el("div", "hd-meta");
+    meta.append(
+      el("span", null, m.mode === "local" ? "本機" : "雲端"),
+      el("span", null, fmtHistoryTime(m.updated_at || m.created_at)),
+      el("span", null, m.status || ""),
+    );
+    row.append(meta);
+    const actions = el("div", "hd-actions");
+    const openBtn = el("button", "btn primary small", "打開");
+    openBtn.type = "button";
+    openBtn.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      dlg.close();
+      const ok = await loadLocalMeeting(id).catch(() => false);
+      if (!ok) showError($("jobError"), "讀不到這筆會議的裝置副本");
+    });
+    const del = el("button", "btn ghost small", "刪除");
+    del.type = "button";
+    del.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      if (!window.confirm(`從這台裝置刪除「${m.meeting_name || m.name}」？雲端後端上的資料不會被刪。`)) return;
+      await Store.meetings.remove(id);
+      await Store.transcripts.remove(id);
+      await Store.summaries.remove(id);
+      showMeetingHistory();
+    });
+    actions.append(openBtn, del);
+    row.append(actions);
+    row.addEventListener("click", () => openBtn.click());
+    row.addEventListener("keydown", (e) => { if (e.key === "Enter") openBtn.click(); });
+    list.append(row);
+  }
+}
+
+function bytesToBase64(text) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
+
+async function exportBackup() {
+  if (!window.Store) return;
+  hdMsg("");
+  try {
+    const data = await Store.exportAll();
+    const json = JSON.stringify(data);
+    const name = `meetsum-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    if (CapacitorBridge.isNative()) {
+      await CapacitorBridge.writeFile(name, bytesToBase64(json), "Documents");
+      hdMsg(`已存到 App 文件夾：${name}（可用 Finder 或「檔案」App 取出）`);
+    } else {
+      const blob = new Blob([json], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = name;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      hdMsg(`已匯出 ${name}`);
+    }
+  } catch (err) {
+    hdMsg(`匯出失敗：${err.message}`, true);
+  }
+}
+
+async function importBackup(file) {
+  if (!file || !window.Store) return;
+  hdMsg("");
+  try {
+    const data = JSON.parse(await file.text());
+    await Store.importAll(data);
+    const meetings = await Store.meetings.list();
+    await showMeetingHistory();
+    hdMsg(`已還原 ${meetings.length} 筆會議`);
+  } catch (err) {
+    hdMsg(`還原失敗：${err.message}`, true);
+  }
+}
+
+function setupHistoryControls() {
+  const btn = $("historyBtnTop");
+  if (btn) btn.addEventListener("click", () => {
+    CapacitorBridge.hapticImpact("light").catch(() => {});
+    showMeetingHistory();
+  });
+  const close = $("hdClose");
+  if (close) close.addEventListener("click", () => $("historyDialog").close());
+  const exp = $("hdExport");
+  if (exp) exp.addEventListener("click", exportBackup);
+  const imp = $("hdImport");
+  if (imp) imp.addEventListener("change", async () => {
+    const file = imp.files && imp.files[0];
+    imp.value = "";
+    if (file) await importBackup(file);
+  });
+}
+
 const STATUS_TEXT = {
   uploaded: "已上傳，等待處理…",
   transcribing: "正在辨識語音（會先載入這個語言的模型，辨識完就關閉）…",
