@@ -46,10 +46,10 @@ jobs:
       - name: 檢查 frontend JavaScript 語法
         run: |
           set -euo pipefail
-          shopt -s nullglob
-          files=(frontend/*.js)
+          shopt -s nullglob globstar
+          files=(frontend/src/**/*.js)
           if (( ${#files[@]} == 0 )); then
-            echo "frontend 底下沒有 .js 檔"
+            echo "frontend/src 底下沒有 .js 檔"
             exit 1
           fi
           for file in "${files[@]}"; do
