@@ -63,6 +63,26 @@ jobs:
           pip install "torch==2.5.0" "transformers==4.53" "numpy<2.4.0" coremltools huggingface_hub
           pip install git+https://github.com/argmaxinc/WhisperKitTools.git
 
+      # 先確認 HF_TOKEN 屬於預期的帳號，避免模型默默上傳到別的帳號。
+      - name: Verify Hugging Face account
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          EXPECTED_HF_USER: CHCBEN
+        run: |
+          python - <<'PY'
+          import os, sys
+          from huggingface_hub import HfApi
+
+          token = os.environ.get("HF_TOKEN", "").strip()
+          if not token:
+              sys.exit("::error::HF_TOKEN 未設定")
+          whoami = HfApi(token=token).whoami()
+          name = whoami.get("name") or ""
+          print(f"HF account: {name}")
+          if name != os.environ["EXPECTED_HF_USER"]:
+              sys.exit(f"::error::HF_TOKEN 屬於 {name}，預期 {os.environ['EXPECTED_HF_USER']}")
+          PY
+
       - name: Set model version slug
         id: vars
         run: |
