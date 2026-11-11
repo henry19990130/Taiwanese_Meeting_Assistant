@@ -56,6 +56,8 @@ jobs:
       - name: Build Frontend (Vite - injects VITE_API_BASE_URL)
         env:
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL || 'http://localhost:8000' }}
+          # 設定這個 repo secret 後，App 就能自動找到 Colab（Worker 固定入口）
+          VITE_DISCOVERY_URL: ${{ secrets.VITE_DISCOVERY_URL || vars.VITE_DISCOVERY_URL || '' }}
         run: npm run build
 
       - name: Verify build output
