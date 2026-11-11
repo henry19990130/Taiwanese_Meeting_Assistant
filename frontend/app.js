@@ -281,10 +281,12 @@ async function discoverServer() {
     const res = await fetch(DISCOVERY_URL, { headers: { Accept: "application/json" } });
     if (!res.ok) return null;
     const data = await res.json();
-    if (!data || !data.url) return null;
-    setServerUrl(data.url);
-    try { localStorage.setItem(DISCOVERY_CACHE_KEY, JSON.stringify({ url: data.url, at: Date.now() })); } catch (_) { /* ignore */ }
-    return data.url;
+    if (!data || (!data.url && !data.api_url)) return null;
+    // 新版 Worker 直接代理後端，api_url 是固定網域（Google OAuth 才不用每次改設定）
+    const target = data.api_url || data.url;
+    setServerUrl(target);
+    try { localStorage.setItem(DISCOVERY_CACHE_KEY, JSON.stringify({ url: target, at: Date.now() })); } catch (_) { /* ignore */ }
+    return target;
   } catch (_) {
     return null;
   }

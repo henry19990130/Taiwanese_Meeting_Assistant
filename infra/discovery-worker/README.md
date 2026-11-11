@@ -4,9 +4,17 @@ App 的**固定入口**。Colab 每次啟動都會換一組 `https://xxxx.tryclo
 這個 Worker 負責保存「目前有效的網址」，App 只要記住 Worker 的網址就能自動連上。
 
 ```
-App 啟動 ──GET /current──▶ Worker(KV) ──回傳──▶ { url: "https://xxx.trycloudflare.com" }
+App 啟動 ──GET /current──▶ Worker(KV) ──回傳──▶ { api_url: "https://discover.xxx" }
 Colab 啟動 ──POST /update──▶ Worker(KV)（帶 Bearer PUSH_TOKEN）
+App API  ──/api/*──▶ Worker ──代理──▶ https://xxx.trycloudflare.com
 ```
+
+Worker 也直接代理後端。App 把 API base 設成 Worker 的固定網域即可，
+Colab 換網址、重開都不用改 App 設定。
+
+**為什麼要代理？** Google OAuth 只接受事先登記的 redirect URI，
+trycloudflare 網址每次都不同。以 Worker 固定網域當後端後，
+`https://discover.example.com/api/v1/auth/google/callback` 只需登記一次。
 
 ## 一次性部署
 
@@ -54,8 +62,25 @@ DISCOVERY_PUSH_TOKEN=...
 VITE_DISCOVERY_URL=https://discover.example.com/current npm run build
 ```
 
-App 啟動時會先讀這個網址，取得目前 Colab 網址後自動設定後端；
+App 啟動時會先讀這個網址，取得 `api_url`（Worker 本身）後自動設定後端；
 使用者在「伺服器…」手動輸入的位址優先，且不會被自動發現覆蓋。
+
+## Google OAuth 設定
+
+`.env` 把導回網址固定成 Worker：
+
+```env
+GOOGLE_REDIRECT_BASE=https://discover.example.com
+```
+
+Google Cloud Console → OAuth 用戶端（Web application）→
+已授權的重新導向 URI 加入：
+
+```
+https://discover.example.com/api/v1/auth/google/callback
+```
+
+之後 Colab 每次換網址都不需要再改 Google 設定。
 
 ## 手動測試
 
