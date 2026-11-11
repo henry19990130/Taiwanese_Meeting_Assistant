@@ -40,7 +40,8 @@ jobs:
   convert:
     name: Convert to Core ML
     runs-on: macos-latest
-    timeout-minutes: 180
+    # 4-bit 全模型 palettize（encoder 320 + decoder 194 個 module）約 60-100 分鐘
+    timeout-minutes: 300
     permissions:
       contents: write
     outputs:
@@ -114,17 +115,26 @@ jobs:
             --output-dir ./breeze-asr-coreml \
             --hf-repo "${{ github.event.inputs.hf_repo }}" \
             --hf-token "${HF_TOKEN}" \
+            --quantized-only \
             $extra
 
       - name: Create release archives
         run: |
           cd breeze-asr-coreml
+          count=0
           for dir in */; do
             name="${dir%/}"
             [ -f "$name/config.json" ] || continue
+            # 只打包量化 variant（_<N>MB），全精度資料夾太大且 App 用不到
+            case "$name" in *_*MB) ;; *) continue ;; esac
             zip -q -r "../${name}.zip" "$name"
+            count=$((count + 1))
           done
           cd ..
+          if [ "$count" -eq 0 ]; then
+            echo "::error::找不到量化 variant 資料夾（預期名稱結尾為 _<N>MB）"
+            exit 1
+          fi
           ls -lh *.zip
 
       - name: Upload artifact

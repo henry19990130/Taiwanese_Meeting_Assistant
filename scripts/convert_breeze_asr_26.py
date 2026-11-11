@@ -33,6 +33,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -83,17 +84,24 @@ def run_conversion(
         "--output-dir", output_dir,
     ]
     if quantize != "none":
-        # WhisperKitTools 要求 --generate-quantized-variants 必須搭配 --allowed-nbits
-        cmd += ["--generate-quantized-variants", "--allowed-nbits", "4" if quantize == "4bit" else "8"]
+        # WhisperKitTools 要求 --generate-quantized-variants 必須搭配 --allowed-nbits。
+        # --force-recipe-nbits 是關鍵：沒有它，WhisperKitTools 會跑「混合位元搜尋」
+        # （對 1/2/3/4/6/8-bit 各做一次全模型 palettize profiling），
+        # large-v3 規模要 3 小時以上；指定後只做我們要的那一種位元。
+        cmd += [
+            "--generate-quantized-variants",
+            "--allowed-nbits", "4" if quantize == "4bit" else "8",
+            "--force-recipe-nbits",
+        ]
 
     env = os.environ.copy()
     if hf_token:
         env["HF_TOKEN"] = hf_token
 
-    print("🚀 轉換指令：")
-    print("   " + " ".join(cmd))
+    print("🚀 轉換指令：", flush=True)
+    print("   " + " ".join(cmd), flush=True)
     try:
-        result = subprocess.run(cmd, env=env, check=True, text=True, timeout=7200)
+        result = subprocess.run(cmd, env=env, check=True, text=True, timeout=12600)
         print(result.stdout[-4000:] if result.stdout else "")
         print("✅ 轉換完成")
         return True
@@ -101,7 +109,7 @@ def run_conversion(
         print("❌ 找不到 whisperkit-generate-model，請先安裝 WhisperKitTools")
         return False
     except subprocess.TimeoutExpired:
-        print("❌ 轉換逾時（2 小時）")
+        print("❌ 轉換逾時（3.5 小時）")
         return False
     except subprocess.CalledProcessError as e:
         print(f"❌ 轉換失敗（exit {e.returncode}）")
@@ -139,6 +147,14 @@ def verify_output(output_dir: str) -> list[Path]:
         mb = sum(f.stat().st_size for f in path.rglob("*") if f.is_file()) / 1e6
         print(f"  ✅ {path.name}（{mb:.0f} MB）")
     return dirs
+
+
+QUANTIZED_DIR_RE = re.compile(r".+_\d+MB$")
+
+
+def select_quantized(dirs: list[Path]) -> list[Path]:
+    """只留下量化 variant 資料夾（名稱結尾為 _<N>MB）。"""
+    return [p for p in dirs if QUANTIZED_DIR_RE.match(p.name)]
 
 
 def upload_to_huggingface(dirs: list[Path], repo_id: str, hf_token: str, private: bool = False) -> bool:
@@ -194,6 +210,11 @@ def main() -> None:
     parser.add_argument("--hf-repo", help="上傳目標 repo，例如 your-name/breeze-asr-26-whisperkit")
     parser.add_argument("--hf-private", action="store_true", help="把 repo 設為 private")
     parser.add_argument("--verify-only", action="store_true", help="只驗證既有輸出（可搭配 --hf-repo 上傳）")
+    parser.add_argument(
+        "--quantized-only",
+        action="store_true",
+        help="只上傳量化 variant（跳過全精度資料夾，省下數 GB 上傳）",
+    )
     args = parser.parse_args()
 
     if not args.verify_only:
@@ -206,6 +227,13 @@ def main() -> None:
     dirs = verify_output(args.output_dir)
     if not dirs:
         sys.exit(1)
+
+    if args.quantized_only:
+        dirs = select_quantized(dirs)
+        if not dirs:
+            print("❌ 找不到量化 variant（資料夾名稱需以 _<N>MB 結尾）")
+            sys.exit(1)
+        print("   只處理量化 variant：" + ", ".join(p.name for p in dirs))
 
     if args.hf_repo:
         if not args.hf_token:
