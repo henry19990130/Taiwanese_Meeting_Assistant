@@ -143,7 +143,8 @@ window.MeetUI = (() => {
 
   async function loadInfo() {
     try {
-      const r = await fetch("/api/v1/health");
+      const healthUrl = window.MeetSumConfig?.apiUrl ? window.MeetSumConfig.apiUrl("/api/v1/health") : "/api/v1/health";
+      const r = await fetch(healthUrl);
       if (!r.ok) return;
       const d = await r.json();
       if (d.asr_engine === "fake") byId("infoAsr").textContent = "fake（假逐字稿）";

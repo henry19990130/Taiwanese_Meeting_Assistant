@@ -20,6 +20,132 @@ const state = {
 
 const $ = (id) => document.getElementById(id);
 
+// ---------------------------------------------------------------------------
+// 後端伺服器位址設定
+// 優先順序：使用者設定 > 建置時注入的 __API_BASE_URL__ > 同源相對路徑
+// ---------------------------------------------------------------------------
+const SERVER_URL_KEY = "meetsum.server_url";
+const DEFAULT_API_BASE =
+  (typeof __API_BASE_URL__ !== "undefined" && __API_BASE_URL__) ? String(__API_BASE_URL__) : "";
+
+// 正規化伺服器位址；回傳 null 表示格式錯誤，回傳 "" 表示使用同源相對路徑
+function normalizeServerUrl(raw) {
+  let url = String(raw ?? "").trim();
+  if (!url) return "";
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(url)) url = `http://${url}`;
+  let parsed;
+  try { parsed = new URL(url); } catch (_) { return null; }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return null;
+  return parsed.origin;
+}
+
+function getServerUrl() {
+  let stored = null;
+  try { stored = localStorage.getItem(SERVER_URL_KEY); } catch (_) { /* ignore */ }
+  return normalizeServerUrl(stored ?? DEFAULT_API_BASE) ?? "";
+}
+
+function setServerUrl(raw) {
+  const normalized = normalizeServerUrl(raw);
+  if (normalized === null) return false;
+  try {
+    if (normalized) localStorage.setItem(SERVER_URL_KEY, normalized);
+    else localStorage.removeItem(SERVER_URL_KEY);
+  } catch (_) { /* ignore */ }
+  updateServerLabels();
+  return true;
+}
+
+function apiUrl(path) {
+  const base = getServerUrl();
+  return base ? `${base}${path}` : path;
+}
+
+async function testServer(raw) {
+  const target = normalizeServerUrl(raw);
+  if (target === null) throw new Error("網址格式不正確（例：http://localhost:8000）");
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 6000);
+  try {
+    const res = await fetch(`${target}/api/v1/health`, { signal: controller.signal });
+    if (!res.ok) throw new Error(`伺服器回應 ${res.status}`);
+    return await res.json().catch(() => ({}));
+  } catch (err) {
+    if (err && err.name === "AbortError") throw new Error("連線逾時，請確認後端已啟動");
+    throw new Error("無法連線，請確認網址與後端是否啟動");
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+function updateServerLabels() {
+  const url = getServerUrl();
+  const text = url || "同源（由後端提供頁面）";
+  const label = document.getElementById("serverLabel");
+  if (label) label.textContent = text;
+  const top = document.getElementById("serverBtnTop");
+  if (top) top.title = `後端伺服器：${text}`;
+}
+
+function setServerMsg(msg, ok = false) {
+  const el = $("serverMsg");
+  if (!el) return;
+  el.textContent = msg || "";
+  el.hidden = !msg;
+  el.style.color = ok ? "var(--accent)" : "var(--error)";
+}
+
+function openServerDialog() {
+  const dialog = $("serverDialog");
+  if (!dialog || typeof dialog.showModal !== "function") {
+    // 對話框不支援時的降級做法
+    const next = window.prompt("後端伺服器位址（留空＝使用建置時預設）", getServerUrl());
+    if (next !== null && !setServerUrl(next)) window.alert("網址格式不正確");
+    return;
+  }
+  $("serverInput").value = getServerUrl();
+  setServerMsg("");
+  dialog.showModal();
+}
+
+async function handleServerTest() {
+  setServerMsg("測試中…");
+  try {
+    const info = await testServer($("serverInput").value);
+    const asr = info.asr_engine ? `ASR：${info.asr_engine}` : "";
+    const llm = info.llm_model ? `LLM：${info.llm_model}` : "";
+    const detail = [asr, llm].filter(Boolean).join("，");
+    setServerMsg(`✅ 連線成功${detail ? `（${detail}）` : ""}`, true);
+  } catch (err) {
+    setServerMsg(`❌ ${err.message}`);
+  }
+}
+
+function handleServerSave() {
+  if (!setServerUrl($("serverInput").value)) {
+    setServerMsg("網址格式不正確（例：http://localhost:8000）");
+    return;
+  }
+  $("serverDialog").close();
+}
+
+// 綁定伺服器設定 UI（script 在 body 尾端，元素已存在）
+if ($("serverDialog")) {
+  $("serverBtn").addEventListener("click", openServerDialog);
+  $("serverBtnTop").addEventListener("click", openServerDialog);
+  $("serverClose").addEventListener("click", () => $("serverDialog").close());
+  $("serverTest").addEventListener("click", handleServerTest);
+  $("serverClear").addEventListener("click", () => {
+    $("serverInput").value = DEFAULT_API_BASE;
+    setServerMsg(DEFAULT_API_BASE ? "已帶入建置時的預設位址，按「儲存」生效" : "已清空，將使用同源相對路徑", true);
+  });
+  $("serverForm").addEventListener("submit", (e) => { e.preventDefault(); handleServerSave(); });
+  updateServerLabels();
+}
+
+// 供其他模組（ui.js 等）與偵錯使用
+window.MeetSumConfig = { getServerUrl, setServerUrl, apiUrl, testServer, DEFAULT_API_BASE };
+
 // Capacitor Bridge - 掛載到 window 供其他模組使用
 import * as CapacitorBridge from './capacitor.js';
 window.CapacitorBridge = CapacitorBridge;
@@ -100,8 +226,23 @@ async function api(path, { method = "GET", json, form } = {}) {
   if (json !== undefined) { headers["Content-Type"] = "application/json"; body = JSON.stringify(json); }
   if (form !== undefined) body = form;
 
-  const res = await fetch(path, { method, headers, body });
+  const target = apiUrl(path);
+  let res;
+  try {
+    res = await fetch(target, { method, headers, body });
+  } catch (_) {
+    const base = getServerUrl();
+    throw new Error(
+      base
+        ? `無法連線到伺服器（${base}）。請確認後端已啟動，或點「伺服器」更改位址`
+        : "無法連線到後端，請確認頁面是由後端提供"
+    );
+  }
   if (res.status === 204) return null;
+  const contentType = res.headers.get("content-type") || "";
+  if (res.ok && !contentType.includes("application/json")) {
+    throw new Error(`伺服器回應不是 JSON（${target}）。請確認伺服器位址是否正確`);
+  }
   const data = await res.json().catch(() => ({}));
   if (res.status === 401 && state.token) { logoutLocal("登入已失效，請重新登入"); }
   if (!res.ok) {
@@ -343,6 +484,9 @@ function setAsrMode(mode) {
       : "雲端模式：上傳至伺服器辨識，支援多語言與聲紋識別";
   }
 
+  // 若 UI 未提供本地模式選項（此版本僅雲端），忽略切換要求
+  if (isLocal && !document.querySelector('input[name=asr_mode][value=local]')) return;
+
   // 如果是本地模式且在原生平台，檢查裝置能力
   if (isLocal && CapacitorBridge.isNative()) {
     checkLocalAsrCapabilities();
@@ -356,6 +500,8 @@ for (const r of document.querySelectorAll("input[name=asr_mode]")) {
 
 // 建立並插入本地 ASR 選項 UI
 function initLocalAsrOptions() {
+  // 本地模式此版本未內建（僅雲端模式），UI 上不提供選項
+  if (!document.querySelector('input[name=asr_mode][value=local]')) return;
   const asrLangField = $("asrLangField");
   if (asrLangField && !$("localAsrOptions")) {
     const localOptions = createLocalAsrOptions();
@@ -371,7 +517,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // 檢查本地 ASR 裝置能力
 async function checkLocalAsrCapabilities() {
   try {
-    const { MeetsumLocalASR } = await import('../../meetsum-local-asr/src/index.ts');
+    const { MeetsumLocalASR } = await import('@meetsum-local-asr');
     const capabilities = await MeetsumLocalASR.getDeviceCapabilities();
     console.log('[Local ASR] 裝置能力:', capabilities);
 
@@ -526,7 +672,7 @@ async function handleLocalModelDownload() {
   progressText.textContent = "準備下載...";
 
   try {
-    const { MeetsumLocalASR } = await import('../../meetsum-local-asr/src/index.ts');
+    const { MeetsumLocalASR } = await import('@meetsum-local-asr');
 
     // 監聽下載進度
     const listener = await MeetsumLocalASR.addListener('transcriptionProgress', (progress) => {
@@ -579,7 +725,7 @@ async function handleLocalModelCheck() {
   }
 
   try {
-    const { MeetsumLocalASR } = await import('../../meetsum-local-asr/src/index.ts');
+    const { MeetsumLocalASR } = await import('@meetsum-local-asr');
     const { models } = await MeetsumLocalASR.getAvailableModels();
 
     let msg = "模型狀態：\n";
@@ -602,7 +748,7 @@ async function handleLocalModelClear() {
   if (!window.confirm("確定要清除所有暫存檔案嗎？這不會刪除已下載的模型。")) return;
 
   try {
-    const { MeetsumLocalASR } = await import('../../meetsum-local-asr/src/index.ts');
+    const { MeetsumLocalASR } = await import('@meetsum-local-asr');
     await MeetsumLocalASR.clearCache();
     showError($("uploadError"), "快取已清除", false);
   } catch (err) {
@@ -643,7 +789,7 @@ async function handleLocalTranscription(form) {
     const { uri } = await CapacitorBridge.writeFile(fileName, base64, 'Documents');
 
     // 開始本地轉錄
-    const { MeetsumLocalASR } = await import('../../meetsum-local-asr/src/index.ts');
+    const { MeetsumLocalASR } = await import('@meetsum-local-asr');
 
     const { jobId } = await MeetsumLocalASR.transcribe({
       audioPath: uri,

@@ -28,14 +28,14 @@ npx cap sync ios
 
 echo -e "${YELLOW}📥 Resolving Swift Packages...${NC}"
 cd "$IOS_DIR"
-xcodebuild -workspace App.xcworkspace \
+xcodebuild -project App.xcodeproj \
   -scheme App \
   -resolvePackageDependencies \
   -configuration "$CONFIGURATION"
 
 echo -e "${YELLOW}🏗️  Archiving (no code signing)...${NC}"
 mkdir -p "$BUILD_DIR"
-xcodebuild -workspace App.xcworkspace \
+xcodebuild -project App.xcodeproj \
   -scheme App \
   -configuration "$CONFIGURATION" \
   -destination 'generic/platform=iOS' \

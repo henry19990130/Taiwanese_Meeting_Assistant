@@ -38,6 +38,7 @@
     </ol>
     <div class="user" id="userBox" hidden>
       <span id="userName"></span>
+      <button class="btn ghost small" id="serverBtnTop" type="button" title="設定後端伺服器位址">伺服器…</button>
       <button class="btn ghost small" id="logoutBtn" type="button">登出</button>
     </div>
   </header>
@@ -98,7 +99,10 @@
             <button class="linkish" type="button" id="showLogin">回到登入</button>
           </form>
         </div>
-        <div class="login-foot"><span>本機模式 · 錄音不上雲</span><span>台語＋華語辨識</span></div>
+        <div class="login-foot">
+          <button class="linkish" type="button" id="serverBtn" title="設定後端伺服器位址">伺服器：<span id="serverLabel"></span></button>
+          <span>雲端模式 · 台語＋華語辨識</span>
+        </div>
       </div>
     </section>
 
@@ -126,9 +130,8 @@
               <div class="source" role="radiogroup" aria-label="辨識模式">
                 <span class="source-title">辨識模式</span>
                 <label class="choice"><input type="radio" name="asr_mode" value="cloud" checked> 雲端模式</label>
-                <label class="choice"><input type="radio" name="asr_mode" value="local"> 本地模式 (iOS 實機)</label>
               </div>
-              <small class="hint" id="asrModeHint">雲端模式：上傳至伺服器辨譓，支援多語言與聲紋識別；本地模式：在 iPhone 上離線辨識，隱私優先</small>
+              <small class="hint" id="asrModeHint">雲端模式：上傳至伺服器辨識，支援多語言與聲紋識別</small>
             </div>
             <div class="asr-lang" id="asrLangField">
               <div class="source" role="radiogroup" aria-label="會議語言">
@@ -348,6 +351,24 @@
     <p class="gd-msg" id="gdMsg" hidden></p>
     <input class="gd-filter" id="gdFilter" placeholder="搜尋詞彙" aria-label="搜尋詞彙">
     <ul class="gd-list" id="gdList"></ul>
+  </dialog>
+
+  <dialog class="glossary-dialog" id="serverDialog">
+    <div class="gd-head">
+      <h2>後端伺服器位址</h2>
+      <button class="btn ghost small" id="serverClose" type="button">關閉</button>
+    </div>
+    <p class="hint">App 需要連到 Python 後端才能登入與處理會議。<br>例如 <code>http://localhost:8000</code>，或 Colab 建立的 <code>https://xxxx.trycloudflare.com</code></p>
+    <form class="gd-add" id="serverForm">
+      <input class="gd-filter" id="serverInput" type="url" inputmode="url" autocomplete="off" spellcheck="false"
+             placeholder="http://localhost:8000" aria-label="後端伺服器位址">
+      <button class="btn primary small" type="submit">儲存</button>
+    </form>
+    <p class="gd-msg" id="serverMsg" hidden></p>
+    <div class="server-actions">
+      <button class="btn ghost small" type="button" id="serverTest">測試連線</button>
+      <button class="btn ghost small" type="button" id="serverClear">回到預設（建置時的位址）</button>
+    </div>
   </dialog>
 
   <div id="printDeck" aria-hidden="true"></div>

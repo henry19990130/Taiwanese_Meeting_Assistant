@@ -116,11 +116,11 @@ echo -e "${BLUE}[4/6] 建置 Xcode Archive...${NC}"
 cd "$IOS_DIR"
 
 # 清理舊建置
-xcodebuild -workspace App.xcworkspace -scheme "$SCHEME" -configuration "$CONFIGURATION" clean
+xcodebuild -project App.xcodeproj -scheme "$SCHEME" -configuration "$CONFIGURATION" clean
 
 # 建置 Archive
 ARCHIVE_PATH="$BUILD_DIR/App.xcarchive"
-xcodebuild -workspace App.xcworkspace \
+xcodebuild -project App.xcodeproj \
     -scheme "$SCHEME" \
     -configuration "$CONFIGURATION" \
     -destination "generic/platform=iOS" \

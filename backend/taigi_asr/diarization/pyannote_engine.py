@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import list
 
 from taigi_asr.diarization.base import DiarizationEngine, SpeakerSegment
 

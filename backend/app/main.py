@@ -4,6 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from app import config
@@ -20,6 +21,19 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="台語 AI 會議助理", version="0.1.0", lifespan=lifespan)
+
+# Capacitor / WKWebView 從 capacitor://localhost 載入頁面，
+# 呼叫後端 API 屬於跨來源請求（含 Authorization 的 preflight）。
+# App 以 Bearer token 驗證、不依賴 cookie，因此用萬用字元即可。
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=600,
+)
+
 app.include_router(auth.router)
 app.include_router(meetings.router)
 app.include_router(glossary.router)

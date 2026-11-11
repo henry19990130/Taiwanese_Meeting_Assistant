@@ -1,0 +1,258 @@
+name: Build Signed IPA (Personal Team)
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        type: string
+        description: '要附加 IPA 的 release tag'
+        default: 'v1.1.0'
+      bundle_id:
+        type: string
+        description: 'Bundle Identifier（預設 com.meetsum.app；衝突時改你自己的）'
+        default: 'com.meetsum.app'
+      configuration:
+        type: choice
+        description: 'Build configuration'
+        options: [Release, Debug]
+        default: Release
+      update_release:
+        type: boolean
+        description: '上傳到 GitHub Release（否則只保留 Actions artifact）'
+        default: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-signed-ipa:
+    name: Build Personal Team signed IPA
+    runs-on: macos-latest
+    timeout-minutes: 45
+
+    env:
+      SCHEME: App
+      CONFIGURATION: ${{ inputs.configuration }}
+      KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD || 'meetsum-ci-keychain' }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build Frontend (Vite - injects VITE_API_BASE_URL)
+        env:
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL || 'http://localhost:8000' }}
+        run: npm run build
+
+      - name: Verify frontend bundle
+        run: |
+          JS=$(ls frontend/dist/assets/main-*.js | head -1)
+          grep -q "localhost:8000" "$JS" || { echo "❌ API base 未內嵌"; exit 1; }
+          if grep -q "meetsum-local-asr/src/index.ts" "$JS"; then
+            echo "❌ bundle 殘留無法解析的路徑"; exit 1
+          fi
+          echo "✅ frontend bundle OK"
+
+      - name: Sync Capacitor iOS
+        run: npx cap sync ios
+
+      - name: Decode signing certificate
+        env:
+          IOS_CERT_P12_BASE64: ${{ secrets.IOS_CERT_P12_BASE64 }}
+        run: |
+          test -n "$IOS_CERT_P12_BASE64" || { echo "❌ secret IOS_CERT_P12_BASE64 未設定"; exit 1; }
+          echo "$IOS_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          echo "✅ .p12 已解碼"
+
+      - name: Decode provisioning profile
+        env:
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          test -n "$IOS_PROVISIONING_PROFILE_BASE64" || { echo "❌ secret IOS_PROVISIONING_PROFILE_BASE64 未設定"; exit 1; }
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/profile.mobileprovision"
+          # 解析描述檔資訊
+          PROFILE_NAME=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" 2>/dev/null \
+            | plutil -extract Name raw -)
+          PROFILE_UUID=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" 2>/dev/null \
+            | plutil -extract UUID raw -)
+          PROFILE_TEAM=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" 2>/dev/null \
+            | plutil -extract TeamIdentifier.0 raw - 2>/dev/null || true)
+          PROFILE_BUNDLE=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" 2>/dev/null \
+            | plutil -extract Entitlements.application-identifier raw - 2>/dev/null || true)
+          echo "描述檔名稱: $PROFILE_NAME"
+          echo "UUID: $PROFILE_UUID"
+          echo "Team: $PROFILE_TEAM"
+          echo "application-identifier: $PROFILE_BUNDLE"
+          echo "PROFILE_NAME=$PROFILE_NAME" >> "$GITHUB_ENV"
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+
+      - name: Install provisioning profile
+        run: |
+          mkdir -p ~/Library/MobileDevice/Provisioning\ Profiles
+          cp "$RUNNER_TEMP/profile.mobileprovision" \
+            ~/Library/MobileDevice/Provisioning\ Profiles/${{ env.PROFILE_UUID }}.mobileprovision
+          echo "✅ 描述檔已安裝"
+
+      - name: Create temporary keychain and import certificate
+        env:
+          IOS_CERT_PASSWORD: ${{ secrets.IOS_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN_PATH="$RUNNER_TEMP/signing.keychain-db"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$RUNNER_TEMP/cert.p12" -P "$IOS_CERT_PASSWORD" -A -t cert \
+            -f pkcs12 -k "$KEYCHAIN_PATH"
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain
+          echo "✅ 憑證已匯入臨時 keychain"
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26'
+
+      - name: Verify signing identity
+        run: |
+          security find-identity -v -p codesigning
+          COUNT=$(security find-identity -v -p codesigning | grep -c "Apple Development" || true)
+          test "$COUNT" -gt 0 || { echo "❌ 沒有 Apple Development 憑證"; exit 1; }
+
+      - name: Determine Team ID
+        run: |
+          if [ -n "${{ secrets.IOS_TEAM_ID }}" ]; then
+            TEAM_ID="${{ secrets.IOS_TEAM_ID }}"
+          else
+            # 從描述檔取出 Team ID
+            TEAM_ID=$(security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" 2>/dev/null \
+              | plutil -extract TeamIdentifier.0 raw - 2>/dev/null || true)
+          fi
+          test -n "$TEAM_ID" || { echo "❌ 無法取得 Team ID（請設定 IOS_TEAM_ID secret）"; exit 1; }
+          echo "Team ID: $TEAM_ID"
+          echo "TEAM_ID=$TEAM_ID" >> "$GITHUB_ENV"
+
+      - name: Resolve Swift Package dependencies
+        working-directory: ios/App
+        run: |
+          xcodebuild -project App.xcodeproj -scheme App \
+            -resolvePackageDependencies \
+            -configuration ${{ env.CONFIGURATION }}
+
+      - name: Archive with manual signing
+        working-directory: ios/App
+        run: |
+          BUILD_DIR="${{ runner.temp }}/build"
+          ARCHIVE_PATH="$BUILD_DIR/App.xcarchive"
+          mkdir -p "$BUILD_DIR"
+          BUNDLE_ID="${{ inputs.bundle_id }}"
+          test -n "$BUNDLE_ID" || BUNDLE_ID="com.meetsum.app"
+
+          xcodebuild -project App.xcodeproj \
+            -scheme App \
+            -configuration ${{ env.CONFIGURATION }} \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            clean archive \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Development" \
+            DEVELOPMENT_TEAM=${{ env.TEAM_ID }} \
+            PROVISIONING_PROFILE_SPECIFIER="${{ env.PROFILE_NAME }}" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID" \
+            | xcpretty || exit ${PIPESTATUS[0]}
+
+      - name: Export IPA (development distribution)
+        run: |
+          BUILD_DIR="${{ runner.temp }}/build"
+          ARCHIVE_PATH="$BUILD_DIR/App.xcarchive"
+          EXPORT_PATH="$BUILD_DIR/ipa"
+          mkdir -p "$EXPORT_PATH"
+          cat > "$BUILD_DIR/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+          	<key>method</key>
+          	<string>development</string>
+          	<key>teamID</key>
+          	<string>${{ env.TEAM_ID }}</string>
+          	<key>signingStyle</key>
+          	<string>manual</string>
+          	<key>stripSwiftSymbols</key>
+          	<true/>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportOptionsPlist "$BUILD_DIR/ExportOptions.plist" \
+            -exportPath "$EXPORT_PATH"
+
+          IPA_FILE=$(find "$EXPORT_PATH" -name "*.ipa" | head -1)
+          test -n "$IPA_FILE" || { echo "❌ 找不到匯出的 IPA"; exit 1; }
+          mv "$IPA_FILE" "$BUILD_DIR/MeetSum-PersonalTeam.ipa"
+          echo "IPA_PATH=$BUILD_DIR/MeetSum-PersonalTeam.ipa" >> "$GITHUB_ENV"
+          echo "IPA_SIZE=$(stat -f%z "$BUILD_DIR/MeetSum-PersonalTeam.ipa")" >> "$GITHUB_ENV"
+          echo "✅ IPA 匯出完成"
+
+      - name: Verify IPA signature
+        run: |
+          unzip -l "$IPA_PATH" | head -30
+          rm -rf /tmp/ipa-check && mkdir -p /tmp/ipa-check
+          unzip -q "$IPA_PATH" -d /tmp/ipa-check
+          codesign -dv /tmp/ipa-check/Payload/*.app 2>&1 || true
+          security cms -D -i "$RUNNER_TEMP/profile.mobileprovision" 2>/dev/null \
+            | plutil -extract ProvisionedDevices xml1 - 2>/dev/null || echo "（無 ProvisionedDevices 資訊）"
+
+      - name: Upload IPA as Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: meetsum-personal-team-ipa
+          path: ${{ env.IPA_PATH }}
+          retention-days: 30
+
+      - name: Upload to Release
+        if: inputs.update_release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ inputs.release_tag }}"
+          test -n "$TAG" || TAG="v1.1.0"
+          # 確認 release 存在（不存在則建立）
+          if ! gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "Release $TAG 不存在，建立..."
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" \
+              --title "覓聲 MeetSum $TAG" \
+              --notes "Personal Team 簽名 IPA"
+          fi
+          # 若已存在同名資產先刪除再上傳
+          gh release delete-asset "$TAG" MeetSum-PersonalTeam.ipa --repo "$GITHUB_REPOSITORY" --yes 2>/dev/null || true
+          gh release upload "$TAG" "$IPA_PATH" --repo "$GITHUB_REPOSITORY" --clobber
+          echo "✅ 已上傳到 Release $TAG"
+
+      - name: Cleanup keychain
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing.keychain-db" 2>/dev/null || true
+          rm -f ~/Library/MobileDevice/Provisioning\ Profiles/*.mobileprovision 2>/dev/null || true
+
+      - name: Summary
+        run: |
+          echo "## 📦 Personal Team Signed IPA" >> $GITHUB_STEP_SUMMARY
+          echo "- **Release tag**: ${{ inputs.release_tag }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Bundle ID**: ${{ inputs.bundle_id }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **Configuration**: ${{ env.CONFIGURATION }}" >> $GITHUB_STEP_SUMMARY
+          echo "- **IPA Size**: ${{ env.IPA_SIZE }} bytes" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "⚠️ Personal Team 描述檔 7 天後失效；只能安裝在描述檔內已註冊的裝置。" >> $GITHUB_STEP_SUMMARY

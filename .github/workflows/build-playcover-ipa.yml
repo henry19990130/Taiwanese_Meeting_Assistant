@@ -54,7 +54,6 @@ jobs:
           test -f frontend/index.html && echo "✅ index.html exists" || exit 1
 
       - name: Build Frontend (Vite - injects VITE_API_BASE_URL)
-        working-directory: frontend
         env:
           VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL || 'http://localhost:8000' }}
         run: npm run build
@@ -65,8 +64,19 @@ jobs:
           ls -la frontend/dist/
           test -f frontend/dist/index.html && echo "✅ dist/index.html exists" || exit 1
 
-      - name: Install Capacitor CLI
-        run: npm install -g @capacitor/cli@5
+      - name: Verify frontend bundle (API base embedded, no dangling imports)
+        run: |
+          JS=$(ls frontend/dist/assets/main-*.js | head -1)
+          echo "Bundle: $JS"
+          if grep -q "localhost:8000" "$JS"; then
+            echo "✅ 預設 API base 已內嵌（可在 App 內用「伺服器」設定覆蓋）"
+          else
+            echo "❌ API base 未內嵌到 bundle"; exit 1
+          fi
+          if grep -q "meetsum-local-asr/src/index.ts" "$JS"; then
+            echo "❌ bundle 殘留無法解析的本地 ASR 匯入路徑"; exit 1
+          fi
+          echo "✅ 無殘留本地 ASR 路徑"
 
       - name: Sync Capacitor iOS
         run: npx cap sync ios
@@ -142,8 +152,17 @@ jobs:
           tag_name: ${{ github.ref_name }}
           name: "覓聲 MeetSum ${{ github.ref_name }} - PlayCover IPA"
           body: |
-            ## 📱 PlayCover 專用 IPA
-            此 IPA 為 **無簽名/Ad-hoc 簽名** 版本，專為 **PlayCover** 設計。
+            ## 📱 PlayCover 專用 IPA（無簽名）
+            此 IPA 為 **無簽名** 版本，專為 **PlayCover** 設計。Mac (Apple Silicon) 使用者請下載這個檔案。
+
+            ### 新功能 (v1.1.0)
+            - 🖥️ **App 內可設定後端伺服器位址**：登入頁與主畫面右上角都有「伺服器」按鈕，可隨時切換後端（預設 `http://localhost:8000`），並支援一鍵測試連線
+
+            ### ⚠️ 此 App 需要搭配後端伺服器
+            App 只是前端介面，**必須自己啟動 Python 後端**才有功能：
+            1. 在後端機器（Mac 或 Colab）clone 本專案並啟動 backend（FastAPI，預設 port 8000）
+            2. App 內點「伺服器」，輸入後端位址（例：`http://localhost:8000` 或 `https://xxxx.trycloudflare.com`）後測試連線
+            3. 試用帳號：`demo` / `demo1234demo1234demo1234`
 
             ### 安裝方式
             1. 下載 `MeetSum-PlayCover.ipa`
@@ -151,13 +170,16 @@ jobs:
             3. 在 PlayCover 中雙擊啟動
 
             ### 注意事項
-            - ⚠️ **不適用於真實 iOS 裝置** (需有效簽名)
-            - ✅ 適用於 PlayCover / 模擬器 / Apple Silicon Mac
+            - ⚠️ **不適用於真實 iOS 裝置**（無簽名）
+            - ✅ 適用於 PlayCover / Apple Silicon Mac
             - 🔧 後端 API: `${{ secrets.VITE_API_BASE_URL || 'http://localhost:8000' }}`
             - 📦 建構配置: ${{ env.CONFIGURATION }}
 
+            ### 其他下載
+            - 📲 **真機 iOS（Personal Team 簽名）**：若 release 有 `MeetSum-PersonalTeam.ipa`，僅適用簽名者本人已註冊的裝置，**7 天後失效**，需重新簽名。其他人請用本檔案搭配 Sideloadly／AltStore 自行重簽。
+
             ### 系統需求
-            - macOS 13+ (Apple Silicon M1/M2/M3)
+            - macOS 13+ (Apple Silicon M1/M2/M3/M4)
             - PlayCover 最新版
           files: |
             ${{ env.EXPORT_PATH }}/*.ipa

@@ -24,3 +24,9 @@ ios/App/Models/
 .idea/
 *.swp
 *.swo
+
+# Frontend build outputs / env
+frontend/dist/
+meetsum-local-asr/dist/
+.env.production
+*.bak

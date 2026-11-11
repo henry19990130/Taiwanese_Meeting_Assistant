@@ -962,3 +962,15 @@ mark.typo.fixed { background: transparent; color: inherit; border-bottom: 2px so
 .ag-pose.on { opacity: 1; }
 .ag-pose.out { opacity: 0; transition: opacity .18s ease-in .1s; }
 .ag-pose.snap { transition: none; }
+
+/* ---- 後端伺服器位址設定 ---- */
+.server-actions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 16px; }
+#serverBtn { font-family: var(--mono); font-size: 12px; text-underline-offset: 2px; text-align: left; }
+#serverBtn code { font-family: inherit; }
+#serverLabel { font-weight: 500; color: var(--muted); }
+#serverDialog .gd-add { align-items: center; }
+#serverInput { flex: 1; }
+.glossary-dialog code {
+  font-family: var(--mono); font-size: 12px; background: var(--wood-panel);
+  padding: 1px 5px; border-radius: 5px;
+}
