@@ -22,9 +22,7 @@ let package = Package(
         .package(name: "CapacitorPreferences", path: "../../../node_modules/@capacitor/preferences"),
         .package(name: "CapacitorSplashScreen", path: "../../../node_modules/@capacitor/splash-screen"),
         .package(name: "CapacitorStatusBar", path: "../../../node_modules/@capacitor/status-bar"),
-        // 裝置內推論（不打包模型，首次使用才下載）
-        .package(name: "MeetsumLocalASR", path: "../../../meetsum-local-asr"),
-        .package(name: "MeetsumLocalLLM", path: "../../../meetsum-local-llm")
+        .package(name: "MeetsumLocalASR", path: "../../../meetsum-local-asr")
     ],
     targets: [
         .target(
@@ -42,8 +40,7 @@ let package = Package(
                 .product(name: "CapacitorPreferences", package: "CapacitorPreferences"),
                 .product(name: "CapacitorSplashScreen", package: "CapacitorSplashScreen"),
                 .product(name: "CapacitorStatusBar", package: "CapacitorStatusBar"),
-                .product(name: "MeetsumLocalASR", package: "MeetsumLocalASR"),
-                .product(name: "MeetsumLocalLLM", package: "MeetsumLocalLLM")
+                .product(name: "MeetsumLocalASR", package: "MeetsumLocalASR")
             ]
         )
     ]

@@ -140,6 +140,25 @@ jobs:
           echo "IPA_SIZE=$(stat -f%z "$IPA_FILE")" >> $GITHUB_ENV
           unzip -l "$IPA_FILE" | head -30
 
+      # 硬性檢查：原生 plugin 真的被連結進 App binary（避免 cap sync 覆寫後靜默漏掉）
+      - name: Verify native plugins are linked
+        run: |
+          BIN="${{ env.ARCHIVE_PATH }}/Products/Applications/App.app/App"
+          python3 - "$BIN" <<'PY'
+          import sys
+          path = sys.argv[1]
+          data = open(path, "rb").read()
+          required = ["MeetsumLocalASRPlugin", "WhisperKit", "SpeakerKit"]
+          missing = [s for s in required if s.encode() not in data]
+          print(f"binary: {path} ({len(data) / 1024 / 1024:.1f} MB)")
+          for s in required:
+              print(("OK   " if s.encode() in data else "MISS "), s)
+          if len(data) < 2 * 1024 * 1024:
+              sys.exit("::error::App binary 只有 %.1f MB，原生 plugin 明顯沒被連結" % (len(data) / 1024 / 1024))
+          if missing:
+              sys.exit("::error::App binary 缺少原生 plugin 符號: " + ", ".join(missing))
+          PY
+
       - name: Upload IPA as Artifact
         uses: actions/upload-artifact@v4
         with:
