@@ -28,7 +28,7 @@ const $ = (id) => document.getElementById(id);
 
 // ---------------------------------------------------------------------------
 // 後端伺服器位址設定
-// 優先順序：使用者設定 > 建置時注入的 __API_BASE_URL__ > 同源相對路徑
+// 優先順序：使用者手動設定 > 自動發現（Worker 固定入口） > 建置時注入的 __API_BASE_URL__ > 同源相對路徑
 // ---------------------------------------------------------------------------
 const SERVER_URL_KEY = "meetsum.server_url";
 const DEFAULT_API_BASE =
@@ -45,10 +45,31 @@ function normalizeServerUrl(raw) {
   return parsed.origin;
 }
 
-function getServerUrl() {
+// 使用者手動設定的位址（不包含建置時注入的預設值）。
+function getStoredServerUrl() {
   let stored = null;
   try { stored = localStorage.getItem(SERVER_URL_KEY); } catch (_) { /* ignore */ }
-  return normalizeServerUrl(stored ?? DEFAULT_API_BASE) ?? "";
+  return normalizeServerUrl(stored) ?? "";
+}
+
+function readDiscoveryCache() {
+  try { return JSON.parse(localStorage.getItem(DISCOVERY_CACHE_KEY) || "null"); } catch (_) { return null; }
+}
+
+// 自動發現到的固定入口（保留最後一次成功的值，過期仍可用，背景會再刷新）。
+function getDiscoveredServerUrl() {
+  const cached = readDiscoveryCache();
+  if (!cached || !cached.url) return "";
+  return normalizeServerUrl(cached.url) ?? "";
+}
+
+// 優先順序：使用者手動設定 > 自動發現 > 建置時注入的 __API_BASE_URL__ > 同源
+function getServerUrl() {
+  const manual = getStoredServerUrl();
+  if (manual) return manual;
+  const discovered = getDiscoveredServerUrl();
+  if (discovered) return discovered;
+  return normalizeServerUrl(DEFAULT_API_BASE) ?? "";
 }
 
 function setServerUrl(raw) {
@@ -270,11 +291,11 @@ async function switchMode() {
 // 使用者手動設定的位址永遠優先，不會被覆蓋。
 // ---------------------------------------------------------------------------
 async function discoverServer() {
-  if (!DISCOVERY_URL || getServerUrl()) return null;
-  let cached = null;
-  try { cached = JSON.parse(localStorage.getItem(DISCOVERY_CACHE_KEY) || "null"); } catch (_) { /* ignore */ }
+  if (!DISCOVERY_URL) return null;
+  // 使用者手動指定就尊重他，不自動覆蓋
+  if (getStoredServerUrl()) return null;
+  const cached = readDiscoveryCache();
   if (cached && cached.url && Date.now() - (cached.at || 0) < 5 * 60 * 1000) {
-    setServerUrl(cached.url);
     return cached.url;
   }
   try {
@@ -283,9 +304,10 @@ async function discoverServer() {
     const data = await res.json();
     if (!data || (!data.url && !data.api_url)) return null;
     // 新版 Worker 直接代理後端，api_url 是固定網域（Google OAuth 才不用每次改設定）
-    const target = data.api_url || data.url;
-    setServerUrl(target);
+    const target = normalizeServerUrl(data.api_url || data.url);
+    if (!target) return null;
     try { localStorage.setItem(DISCOVERY_CACHE_KEY, JSON.stringify({ url: target, at: Date.now() })); } catch (_) { /* ignore */ }
+    updateServerLabels();
     return target;
   } catch (_) {
     return null;

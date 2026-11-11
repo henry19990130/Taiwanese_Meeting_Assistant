@@ -105,7 +105,7 @@
 	<!-- Breeze-ASR-26 轉換後的 WhisperKit CoreML 模型（Hugging Face repo id）。
 	     留空時改用 Documents/WhisperKitModels/breeze-asr-26-coreml_4bit 內的資料夾。 -->
 	<key>BreezeModelRepo</key>
-	<string></string>
+	<string>CHCBEN/breeze-asr-26-ANE</string>
 	<key>BreezeModelVariant</key>
 	<string></string>
 	<!-- 留空＝自動到 repo 查詢（資料夾名稱含模型大小，例如 MediaTek-Research_Breeze-ASR-26_632MB） -->
