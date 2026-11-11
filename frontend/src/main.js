@@ -2,6 +2,7 @@
 import '../capacitor.js'
 import '../entrance.js'
 import '../ui.js'
+import '../store.js'
 import '../app.js'
 import '../deck.js'
 import '../glossary.js'

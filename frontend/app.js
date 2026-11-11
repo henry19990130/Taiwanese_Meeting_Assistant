@@ -12,6 +12,12 @@ const state = {
   notifiedMeetings: new Set(),
   // ASR 模式：'cloud' (雲端) 或 'local' (本地)
   asrMode: 'cloud',
+  // App 層級模式：'cloud' 或 'local'（本機模式免登入）
+  appMode: 'cloud',
+  localUser: null,
+  localProfileName: '',
+  // 本機模式的模型狀態
+  localModels: null,
   // 本地 ASR 狀態
   localAsrJobId: null,
   localAsrProgress: 0,
@@ -161,24 +167,173 @@ window.CapacitorBridge = CapacitorBridge;
 const TOKEN_KEY = 'meetsum.auth_token';
 const USER_KEY = 'meetsum.auth_user';
 
+// ---------------------------------------------------------------------------
+// 執行模式（本機 / 雲端）
+//
+// 本機模式：免登入，ASR 與摘要都在这台装置跑（原生 plugin），資料只存裝置。
+// 雲端模式：Google 或帳密登入，連 Colab 後端；結果一樣寫回裝置。
+// ---------------------------------------------------------------------------
+const APP_MODE_KEY = 'meetsum.app_mode';
+const LOCAL_PROFILE_KEY = 'meetsum.local_profile';
+const DISCOVERY_CACHE_KEY = 'meetsum.discovery_cache';
+const DISCOVERY_URL =
+  (typeof __DISCOVERY_URL__ !== "undefined" && __DISCOVERY_URL__) ? String(__DISCOVERY_URL__) : "";
+
+function isLocalMode() { return state.appMode === "local"; }
+
+function applyMode(mode) {
+  state.appMode = mode;
+  const local = mode === "local";
+  document.body.dataset.mode = mode;
+
+  const cloudBtn = $("modeCloudBtn");
+  const localBtn = $("modeLocalBtn");
+  if (cloudBtn) { cloudBtn.classList.toggle("is-active", !local); cloudBtn.setAttribute("aria-pressed", String(!local)); }
+  if (localBtn) { localBtn.classList.toggle("is-active", local); localBtn.setAttribute("aria-pressed", String(local)); }
+
+  if ($("loginForm")) $("loginForm").hidden = local;
+  if ($("localEntry")) $("localEntry").hidden = !local;
+
+  const badge = $("modeBadge");
+  if (badge) { badge.hidden = !local; badge.textContent = "本機"; }
+  const serverBtn = $("serverBtnTop");
+  if (serverBtn) serverBtn.hidden = local;
+
+  const foot = $("loginModeLabel");
+  if (foot) {
+    foot.textContent = local
+      ? "本機模式 · 模型與資料都在這台裝置"
+      : "雲端模式 · 台語＋華語辨識";
+  }
+  setAsrMode(local ? "local" : "cloud");
+}
+
+async function persistMode(mode) {
+  try { localStorage.setItem(APP_MODE_KEY, mode); } catch (_) { /* ignore */ }
+  try { if (window.Store) await Store.kv.set(APP_MODE_KEY, mode); } catch (_) { /* ignore */ }
+}
+
+async function readStoredMode() {
+  try {
+    const v = window.Store ? await Store.kv.get(APP_MODE_KEY, null) : null;
+    if (v) return v;
+  } catch (_) { /* ignore */ }
+  try { return localStorage.getItem(APP_MODE_KEY) || "cloud"; } catch (_) { return "cloud"; }
+}
+
+async function enterLocalMode({ restore = false } = {}) {
+  let profile = {};
+  try { if (window.Store) profile = (await Store.kv.get(LOCAL_PROFILE_KEY, null)) || {}; } catch (_) { /* ignore */ }
+  state.token = null;
+  state.localUser = {
+    username: profile.username || "local",
+    display_name: profile.display_name || "本機使用者",
+    local: true,
+  };
+  state.user = state.localUser;
+  await persistMode("local");
+  applyMode("local");
+  showApp();
+  if (!restore) CapacitorBridge.hapticNotification('success').catch(() => {});
+}
+
+function exitToModeChoice(message = "") {
+  stopPolling();
+  if (window.assistant) window.assistant.onLogout();
+  Object.assign(state, {
+    token: null, user: null, meetingId: null, status: null,
+    transcript: null, summary: null, proofread: null,
+  });
+  $("appView").hidden = true;
+  $("userBox").hidden = true;
+  $("loginView").hidden = false;
+  document.body.classList.add("login-mode");
+  applyMode("cloud");
+  if (window.Entrance) Entrance.greet();
+  showAuth("login", message || "");
+}
+
+async function switchMode() {
+  CapacitorBridge.hapticImpact('medium').catch(() => {});
+  if (isLocalMode()) {
+    await persistMode("cloud");
+    exitToModeChoice();
+    // 若裝置仍留有雲端登入狀態就直接還原，否則停在登入頁
+    await loadStoredAuth();
+  } else {
+    await enterLocalMode();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 自動發現 Colab 後端（Cloudflare Worker 固定入口）
+// 使用者手動設定的位址永遠優先，不會被覆蓋。
+// ---------------------------------------------------------------------------
+async function discoverServer() {
+  if (!DISCOVERY_URL || getServerUrl()) return null;
+  let cached = null;
+  try { cached = JSON.parse(localStorage.getItem(DISCOVERY_CACHE_KEY) || "null"); } catch (_) { /* ignore */ }
+  if (cached && cached.url && Date.now() - (cached.at || 0) < 5 * 60 * 1000) {
+    setServerUrl(cached.url);
+    return cached.url;
+  }
+  try {
+    const res = await fetch(DISCOVERY_URL, { headers: { Accept: "application/json" } });
+    if (!res.ok) return null;
+    const data = await res.json();
+    if (!data || !data.url) return null;
+    setServerUrl(data.url);
+    try { localStorage.setItem(DISCOVERY_CACHE_KEY, JSON.stringify({ url: data.url, at: Date.now() })); } catch (_) { /* ignore */ }
+    return data.url;
+  } catch (_) {
+    return null;
+  }
+}
+
+// 背景重試：Colab 可能比 App 晚啟動
+async function discoverServerWithRetry({ attempts = 4, delay = 4000 } = {}) {
+  for (let i = 0; i < attempts; i++) {
+    const url = await discoverServer();
+    if (url) return url;
+    await new Promise((r) => setTimeout(r, delay));
+  }
+  return null;
+}
+
+
 // 初始化 Capacitor (在 DOM 準備好後)
 document.addEventListener('DOMContentLoaded', async () => {
+  try { if (window.Store) await Store.init(); } catch (err) { console.warn('[Store] 初始化失敗:', err); }
   try {
     await CapacitorBridge.initCapacitor();
   } catch (err) {
     console.warn('[Capacitor] 初始化失敗:', err);
   }
+  setupModeControls();
+  setupGoogleLogin();
+  setupDeepLink();
   // 與 initCapacitor 分開，避免初始化失敗連帶跳過登入狀態還原
   try {
     await loadStoredAuth();
   } catch (err) {
     console.warn('[Auth] 載入儲存的認證失敗:', err);
   }
+  // 背景自動發現 Colab 後端（有設定固定入口且使用者未手動指定時）
+  if (!isLocalMode()) discoverServerWithRetry({ attempts: 3, delay: 5000 }).catch(() => {});
 });
 const STEP_ORDER = ["uploaded", "transcribing", "proofreading", "reviewing", "summarizing", "completed"];
 
 // 從安全儲存載入認證資訊
 async function loadStoredAuth() {
+  let mode = "cloud";
+  try { mode = await readStoredMode(); } catch (_) { /* ignore */ }
+
+  if (mode === "local") {
+    try { await enterLocalMode({ restore: true }); return; }
+    catch (err) { console.warn("[Auth] 還原本機模式失敗:", err); }
+  }
+  applyMode("cloud");
+
   try {
     const [token, userStr] = await Promise.all([
       CapacitorBridge.getSecure(TOKEN_KEY),
@@ -218,6 +373,313 @@ async function clearStoredAuth() {
   ]);
   state.token = null;
   state.user = null;
+}
+
+// ---------------------------------------------------------------------------
+// 模式 UI / Google 登入 / 深層連結
+// ---------------------------------------------------------------------------
+function setupModeControls() {
+  const cloudBtn = $("modeCloudBtn");
+  const localBtn = $("modeLocalBtn");
+  if (cloudBtn) cloudBtn.addEventListener("click", async () => {
+    CapacitorBridge.hapticSelection().catch(() => {});
+    applyMode("cloud");
+    showAuth("login");
+    await persistMode("cloud");
+  });
+  if (localBtn) localBtn.addEventListener("click", async () => {
+    CapacitorBridge.hapticSelection().catch(() => {});
+    applyMode("local");
+  });
+  const enter = $("localEnterBtn");
+  if (enter) enter.addEventListener("click", async () => {
+    CapacitorBridge.hapticImpact('medium').catch(() => {});
+    await enterLocalMode();
+  });
+  const models = $("localModelBtn");
+  if (models) models.addEventListener("click", async () => {
+    CapacitorBridge.hapticImpact('light').catch(() => {});
+    if (!isLocalMode()) await enterLocalMode();
+    if (typeof showLocalModelManager === "function") showLocalModelManager();
+  });
+  const switchBtn = $("switchModeBtn");
+  if (switchBtn) switchBtn.addEventListener("click", switchMode);
+  applyMode(state.appMode);
+}
+
+function setupGoogleLogin() {
+  const btn = $("googleLoginBtn");
+  if (btn) btn.addEventListener("click", startGoogleLogin);
+}
+
+async function startGoogleLogin() {
+  const btn = $("googleLoginBtn");
+  showError($("loginError"), "");
+  if (btn) btn.disabled = true;
+  try {
+    if (!getServerUrl()) await discoverServer();
+    const data = await api("/api/v1/auth/google/start");
+    if (!data || !data.auth_url) throw new Error("伺服器沒有回傳授權網址");
+    if (CapacitorBridge.isNative()) {
+      // Capacitor WebView 以 _system 交給系統瀏覽器開啟
+      const opened = window.open(data.auth_url, "_system");
+      if (!opened) window.location.href = data.auth_url;
+    } else {
+      window.location.href = data.auth_url;
+    }
+  } catch (err) {
+    showError($("loginError"), err.message);
+  } finally {
+    setTimeout(() => { if (btn) btn.disabled = false; }, 1500);
+  }
+}
+
+function setupDeepLink() {
+  if (!CapacitorBridge.isNative()) return;
+  const App = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+  if (!App) return;
+  App.addListener("appUrlOpen", (ev) => { handleDeepLink(ev && ev.url); });
+  if (typeof App.getLaunchUrl === "function") {
+    App.getLaunchUrl().then((res) => { if (res && res.url) handleDeepLink(res.url); }).catch(() => {});
+  }
+}
+
+async function handleDeepLink(raw) {
+  if (!raw || raw.indexOf("meetsum://") !== 0) return;
+  let url;
+  try { url = new URL(raw.replace("meetsum://", "https://meetsum.local/")); } catch (_) { return; }
+  const token = url.searchParams.get("token");
+  const error = url.searchParams.get("error");
+  if (error) {
+    showError($("loginError"), `Google 登入失敗（${error}）`);
+    return;
+  }
+  if (!token) return;
+  try {
+    state.token = token;
+    const me = await api("/api/v1/auth/me");
+    state.user = me && me.user ? me.user : me;
+    await saveAuth(token, state.user);
+    applyMode("cloud");
+    await persistMode("cloud");
+    if ($("appView").hidden) showApp();
+    if (window.Entrance) Entrance.open();
+  } catch (err) {
+    state.token = null;
+    showError($("loginError"), `Google 登入驗證失敗：${err.message}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// 裝置端資料（local-first）：不論哪個模式，結果都寫回裝置
+// ---------------------------------------------------------------------------
+async function cacheMeeting(patch = {}) {
+  if (!window.Store || !state.meetingId) return;
+  try {
+    const existing = (await Store.meetings.get(state.meetingId)) || {};
+    const title = ($("meetingTitle") && $("meetingTitle").textContent) || existing.name || "未命名會議";
+    await Store.meetings.save({
+      ...existing,
+      id: state.meetingId,
+      name: title,
+      meeting_name: title,
+      mode: state.appMode,
+      status: patch.status || state.status || existing.status || "completed",
+      language: ($("uploadForm") && $("uploadForm").elements.asr_language
+        ? $("uploadForm").elements.asr_language.value : existing.language) || "zh",
+      ...patch,
+    });
+  } catch (err) { console.warn("[Store] 儲存會議失敗:", err); }
+}
+
+async function cacheTranscript(transcript) {
+  if (!window.Store || !state.meetingId || !transcript) return;
+  try { await Store.transcripts.save(state.meetingId, transcript); }
+  catch (err) { console.warn("[Store] 儲存逐字稿失敗:", err); }
+}
+
+async function cacheSummary(summary) {
+  if (!window.Store || !state.meetingId || !summary) return;
+  try { await Store.summaries.save(state.meetingId, summary); }
+  catch (err) { console.warn("[Store] 儲存重點失敗:", err); }
+}
+
+async function loadLocalMeeting(meetingId) {
+  if (!window.Store) return false;
+  const meeting = await Store.meetings.get(meetingId);
+  if (!meeting) return false;
+  const transcript = await Store.transcripts.get(meetingId);
+  const summary = await Store.summaries.get(meetingId);
+  state.meetingId = String(meetingId);
+  state.status = meeting.status || (summary ? "completed" : "transcribed");
+  $("meetingTitle").textContent = meeting.meeting_name || meeting.name || "會議";
+  $("stepTranscribing").textContent = meeting.mode === "local" ? "本機辨識" : "語音辨識";
+  $("uploadCard").hidden = true;
+  $("progressCard").hidden = false;
+  renderStatus({ status: state.status, error: null });
+  if (transcript) {
+    state.transcript = transcript;
+    review.index = -1;
+    renderTranscript();
+    updateReviewUI();
+    $("transcriptCard").hidden = false;
+  }
+  if (summary) {
+    state.summary = summary;
+    syncSummaryLang();
+    renderSnapshot(summary);
+    $("summaryCard").hidden = false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// 本機模型管理（ASR：Breeze-ASR-26；摘要：Bonsai 27B 1-bit）
+// ---------------------------------------------------------------------------
+const LOCAL_MODEL_SPECS = [
+  {
+    id: "breeze-asr-26", name: "Breeze-ASR-26", kind: "asr",
+    size: "約 0.6–4 GB", desc: "台語／華語／客語／英語；encoder 在 ANE",
+    modelSize: "breeze-asr-26-coreml", quantization: "4bit",
+  },
+  {
+    id: "bonsai-27b-1bit", name: "Bonsai 27B 1-bit", kind: "llm",
+    size: "約 3.9 GB", desc: "本機摘要與重點整理（MLX）",
+  },
+];
+
+async function loadModelPlugins() {
+  const out = { asr: null, llm: null };
+  try { out.asr = (await import('@meetsum-local-asr')).MeetsumLocalASR || null; } catch (_) { /* ignore */ }
+  try { out.llm = (await import('@meetsum-local-llm')).MeetsumLocalLLM || null; } catch (_) { /* ignore */ }
+  return out;
+}
+
+async function showLocalModelManager() {
+  const dlg = $("modelDialog");
+  if (!dlg) return;
+  showError($("mdMsg"), "");
+  const list = $("mdList");
+  list.replaceChildren(el("p", "empty", "讀取模型資訊…"));
+  if (typeof dlg.showModal === "function" && !dlg.open) dlg.showModal();
+
+  const plugins = await loadModelPlugins();
+  if (!plugins.asr && !plugins.llm) {
+    list.replaceChildren(el("p", "empty",
+      "這個版本沒有內建原生模型模組（例如在瀏覽器或舊版 App）。請改用雲端模式，或安裝含原生模組的 iOS 版本。"));
+    return;
+  }
+
+  const device = $("mdDevice");
+  if (plugins.asr && plugins.asr.getDeviceCapabilities) {
+    try {
+      const cap = await plugins.asr.getDeviceCapabilities();
+      const gb = Math.round((cap.totalMemoryMB || 0) / 1024 * 10) / 10;
+      device.textContent = `這台裝置記憶體 ${gb} GB；建議 ASR ${cap.recommendedModelSize || "—"}。模型只下載一次，之後可離線使用。`;
+    } catch (_) { /* ignore */ }
+  }
+
+  let statusById = {};
+  if (plugins.asr && plugins.asr.getAvailableModels) {
+    try {
+      const res = await plugins.asr.getAvailableModels();
+      for (const m of (res.models || [])) statusById[`asr:${m.name}`] = m;
+    } catch (_) { /* ignore */ }
+  }
+  if (plugins.llm && plugins.llm.modelStatus) {
+    try {
+      const res = await plugins.llm.modelStatus();
+      for (const m of (res.models || [])) statusById[`llm:${m.id}`] = m;
+    } catch (_) { /* ignore */ }
+  }
+
+  list.replaceChildren();
+  for (const spec of LOCAL_MODEL_SPECS) {
+    const plugin = spec.kind === "asr" ? plugins.asr : plugins.llm;
+    const key = spec.kind === "asr" ? `asr:${spec.modelSize}` : `llm:${spec.id}`;
+    const info = statusById[key] || {};
+    const downloaded = !!info.downloaded;
+
+    const row = el("div", "model-row");
+    const head = el("div", "model-head");
+    head.append(el("span", "model-name", `${spec.name}${downloaded ? " ✓" : ""}`));
+    head.append(el("span", "model-size", spec.size));
+    const body = el("div", "model-desc", spec.desc);
+    row.append(head, body);
+
+    if (!plugin) {
+      row.append(el("p", "hint", "尚未安裝對應的原生模組"));
+      list.append(row);
+      continue;
+    }
+
+    const status = el("div", "model-status", downloaded ? "已下載" : "尚未下載");
+    const actions = el("div", "model-actions");
+    if (!downloaded) {
+      const btn = el("button", "btn primary small", "下載");
+      btn.type = "button";
+      btn.addEventListener("click", async () => {
+        btn.disabled = true;
+        btn.textContent = "下載中… 0%";
+        try {
+          if (spec.kind === "asr") {
+            await plugins.asr.downloadModel({ modelSize: spec.modelSize, quantization: spec.quantization });
+          } else {
+            await plugins.llm.downloadModel({ modelId: spec.id });
+          }
+          btn.textContent = "已下載 ✓";
+          status.textContent = "已下載";
+          CapacitorBridge.hapticNotification('success').catch(() => {});
+        } catch (err) {
+          btn.disabled = false;
+          btn.textContent = "重試下載";
+          showError($("mdMsg"), `下載失敗：${err.message}`);
+        }
+      });
+      actions.append(btn);
+    } else {
+      const del = el("button", "btn ghost small", "刪除");
+      del.type = "button";
+      del.addEventListener("click", async () => {
+        if (!window.confirm(`刪除「${spec.name}」模型？下次使用要重新下載。`)) return;
+        try {
+          if (spec.kind === "asr") await plugins.asr.deleteModel({ modelSize: spec.modelSize, quantization: spec.quantization });
+          else await plugins.llm.deleteModel({ modelId: spec.id });
+          showLocalModelManager();
+        } catch (err) { showError($("mdMsg"), `刪除失敗：${err.message}`); }
+      });
+      actions.append(del);
+    }
+    row.append(status, actions);
+    list.append(row);
+  }
+}
+
+const mdClose = $("mdClose");
+if (mdClose) mdClose.addEventListener("click", () => $("modelDialog").close());
+
+// 模型下載進度（兩個外掛共用 modelProgress 事件）
+(async () => {
+  if (!CapacitorBridge.isNative()) return;
+  try {
+    const asr = (await import('@meetsum-local-asr')).MeetsumLocalASR;
+    if (asr && asr.addListener) asr.addListener("transcriptionProgress", (ev) => updateModelProgressUI(ev)).catch(() => {});
+  } catch (_) { /* ignore */ }
+  try {
+    const llm = (await import('@meetsum-local-llm')).MeetsumLocalLLM;
+    if (llm && llm.addListener) llm.addListener("modelProgress", (ev) => updateModelProgressUI(ev)).catch(() => {});
+  } catch (_) { /* ignore */ }
+})();
+
+function updateModelProgressUI(ev) {
+  if (!ev) return;
+  const pct = Math.round(ev.progress || 0);
+  const label = ev.modelName || ev.modelId || "";
+  for (const btn of document.querySelectorAll("#mdList .model-row")) {
+    if (label && !btn.textContent.includes(label.split("_")[0])) continue;
+    const b = btn.querySelector("button.btn.primary");
+    if (b) b.textContent = `下載中… ${pct}%`;
+  }
 }
 const STATUS_TEXT = {
   uploaded: "已上傳，等待處理…",
@@ -268,6 +730,8 @@ function showError(el, msg) { el.textContent = msg; el.hidden = !msg; }
 
 function showAuth(which, message) {
   const register = which === "register";
+  const localEntry = $("localEntry");
+  if (localEntry) localEntry.hidden = true;
   $("loginForm").hidden = register;
   $("registerForm").hidden = !register;
   showError($("loginError"), register ? "" : (message || ""));
@@ -380,6 +844,10 @@ $("registerForm").addEventListener("submit", async (e) => {
 
 $("logoutBtn").addEventListener("click", async () => {
   CapacitorBridge.hapticImpact('medium').catch(() => {});
+  if (isLocalMode()) {
+    exitToModeChoice();
+    return;
+  }
   try { await api("/api/v1/auth/logout", { method: "POST" }); } catch (_) {  }
   logoutLocal();
 });
@@ -394,6 +862,7 @@ function logoutLocal(message) {
   $("userBox").hidden = true;
   $("loginView").hidden = false;
   document.body.classList.add("login-mode");
+  applyMode("cloud");
   if (window.Entrance) Entrance.greet();
   showAuth("login", message || "");
 }
@@ -404,7 +873,9 @@ function showApp() {
   $("appView").hidden = false;
   $("userBox").hidden = false;
   $("userName").textContent = displayName();
-  $("userName").title = `帳號：${state.user.username}`;
+  $("userName").title = isLocalMode() ? "本機模式：資料只存在這台裝置" : `帳號：${state.user.username}`;
+  if ($("modeBadge")) $("modeBadge").hidden = !isLocalMode();
+  if ($("serverBtnTop")) $("serverBtnTop").hidden = isLocalMode();
   if (window.Entrance) Entrance.greet(displayName());
   resetMeeting();
   if (typeof loadGlossary === "function") loadGlossary();
@@ -453,12 +924,13 @@ const ASR_LANG_INFO = {
 
 // 本地 ASR 模型選項
 const LOCAL_ASR_MODELS = [
+  { value: "breeze-asr-26-coreml", label: "Breeze-ASR-26（台語／華語／客語，ANE）⭐ 預設", size_mb: 4300 },
   { value: "tiny", label: "Tiny (~75 MB)", size_mb: 75 },
   { value: "base", label: "Base (~142 MB)", size_mb: 142 },
   { value: "small", label: "Small (~466 MB)", size_mb: 466 },
   { value: "medium", label: "Medium (~1.5 GB)", size_mb: 1500 },
   { value: "large-v3", label: "Large-v3 (~2.9 GB)", size_mb: 2900 },
-  { value: "large-v3-turbo", label: "Large-v3 Turbo (~1.6 GB) ⭐ 推薦", size_mb: 1600 },
+  { value: "large-v3-turbo", label: "Large-v3 Turbo (~1.6 GB)", size_mb: 1600 },
 ];
 
 function setAsrLanguage(lang) {
@@ -487,11 +959,14 @@ function setAsrMode(mode) {
   const localOptions = document.getElementById("localAsrOptions");
   if (localOptions) localOptions.hidden = !isLocal;
 
+  const label = document.getElementById("asrModeLabel");
+  if (label) label.textContent = isLocal ? "本機模式" : "雲端模式";
+
   // 更新提示文字
   const hint = $("asrModeHint");
   if (hint) {
     hint.textContent = isLocal
-      ? "本地模式：在 iPhone 上離線辨識，隱私優先，需先下載模型"
+      ? "本機模式：音檔不離開這台裝置，需先下載 ASR 與摘要模型"
       : "雲端模式：上傳至伺服器辨識，支援多語言與聲紋識別";
   }
 
@@ -576,7 +1051,7 @@ function createLocalAsrOptions() {
   for (const model of LOCAL_ASR_MODELS) {
     const opt = el("option", null, model.label);
     opt.value = model.value;
-    if (model.value === "large-v3-turbo") opt.selected = true;
+    if (model.value === "breeze-asr-26-coreml") opt.selected = true;
     modelSelect.append(opt);
   }
   modelGroup.append(modelLabel, modelSelect);
@@ -669,7 +1144,8 @@ async function handleLocalModelDownload() {
   }
 
   const modelSize = $("localModelSelect").value;
-  const quantization = $("localQuantSelect").value;
+  let quantization = $("localQuantSelect").value;
+  if (String(modelSize).startsWith("breeze")) quantization = "4bit";
 
   const progressGroup = $("localModelProgressGroup");
   const progressFill = $("localModelProgressFill");
@@ -782,8 +1258,9 @@ async function handleLocalTranscription(form) {
 
   const language = form.get("asr_language") || "zh";
   const enableDiarization = form.get("local_diarization") === "on" || form.get("local_diarization") === "true";
-  const modelSize = form.get("local_model_size") || "large-v3-turbo";
-  const quantization = form.get("local_quantization") || "q4_k";
+  const modelSize = form.get("local_model_size") || "breeze-asr-26-coreml";
+  let quantization = form.get("local_quantization") || "q4_k";
+  if (String(modelSize).startsWith("breeze")) quantization = "4bit";
   const useVad = form.get("local_vad") === "on" || form.get("local_vad") === "true";
 
   // 先將音檔存到本地檔案系統
@@ -808,6 +1285,7 @@ async function handleLocalTranscription(form) {
       enableDiarization,
       modelSize,
       quantization,
+      engine: String(modelSize).startsWith("breeze") ? "breezeasr" : "whisperkit",
       useVad,
     });
 
@@ -895,6 +1373,10 @@ async function handleLocalAsrComplete(result) {
   renderStatus({ status: "transcribed", error: null });
   $("transcriptCard").hidden = false;
 
+  // 寫回裝置，切換模式或重開 App 都不會失憶
+  cacheMeeting({ status: "reviewing", name: $("meetingTitle").textContent, mode: "local" });
+  cacheTranscript(transcript);
+
   // 更新步驟顯示
   for (const li of $("steps").children) {
     const step = li.dataset.step;
@@ -966,6 +1448,7 @@ $("uploadForm").addEventListener("submit", async (e) => {
     $("uploadCard").hidden = true;
     $("progressCard").hidden = false;
     renderStatus({ status: data.status, error: null });
+    cacheMeeting({ status: data.status, name: data.meeting_name });
     startPolling();
   } catch (err) {
     showError($("uploadError"), err.message);
@@ -982,12 +1465,18 @@ async function openMeeting(meetingId, segmentId) {
   for (const id of ["transcriptCard", "summaryCard"]) $(id).hidden = true;
   let st;
   try { st = await api(`/api/v1/meetings/${meetingId}/status`); }
-  catch (err) { showError($("jobError"), `開啟會議失敗：${err.message}`); return; }
+  catch (err) {
+    // 後端連不上（例如 Colab 重啟）時，改讀裝置上的副本，避免失憶
+    const ok = await loadLocalMeeting(meetingId).catch(() => false);
+    if (!ok) showError($("jobError"), `開啟會議失敗：${err.message}`);
+    return;
+  }
   $("meetingTitle").textContent = st.meeting_name;
   $("stepTranscribing").textContent = st.source_type === "transcript" ? "自動分段" : "語音辨識";
   $("uploadCard").hidden = true;
   $("progressCard").hidden = false;
   renderStatus(st);
+  cacheMeeting({ status: st.status, name: st.meeting_name });
   await loadTranscript();
   if (st.status === "completed") await loadSummary();
   if (["uploaded", "transcribing", "proofreading", "summarizing"].includes(st.status)) startPolling();
@@ -1016,6 +1505,7 @@ async function checkStatus() {
   }
   const changed = data.status !== state.status;
   renderStatus(data);
+  if (changed) cacheMeeting({ status: data.status, name: data.meeting_name });
 
   const failedStage = data.status === "failed" && data.error ? data.error.stage : null;
   const hasTranscript = ["proofreading", "reviewing", "transcribed", "summarizing", "completed"].includes(data.status)
@@ -1088,6 +1578,7 @@ async function loadTranscript() {
   review.index = -1;
   renderTranscript();
   updateReviewUI();
+  cacheTranscript(t);
   if (state.status === "reviewing") gotoTypo(nextPending(-1), false);
   $("transcriptCard").hidden = false;
 }
@@ -1738,6 +2229,13 @@ $("confirmBtn").addEventListener("click", async () => {
   if (n && !window.confirm(`還有 ${n} 處疑似錯字沒處理，確認後這些地方會保留原文。確定要確認逐字稿嗎？`)) return;
   $("confirmBtn").disabled = true;
   try {
+    if (isLocalMode()) {
+      // 本機模式沒有雲端校對流程，直接確認逐字稿
+      review.index = -1;
+      renderStatus({ status: "transcribed", error: null });
+      cacheMeeting({ status: "transcribed" });
+      return;
+    }
     const data = await api(`/api/v1/meetings/${state.meetingId}/transcript/confirm`, { method: "POST" });
     review.index = -1;
     renderStatus({ status: data.status, error: null });
@@ -1748,6 +2246,10 @@ $("confirmBtn").addEventListener("click", async () => {
 
 $("reproofBtn").addEventListener("click", async () => {
   CapacitorBridge.hapticImpact('medium').catch(() => {});
+  if (isLocalMode()) {
+    showError($("jobError"), "本機模式目前不提供 AI 錯字校對，請直接確認逐字稿。");
+    return;
+  }
   try {
     const data = await api(`/api/v1/meetings/${state.meetingId}/proofread`, { method: "POST" });
     renderStatus({ status: data.status, error: null });
@@ -1773,6 +2275,10 @@ $("summarizeBtn").addEventListener("click", async () => {
   CapacitorBridge.hapticImpact('medium').catch(() => {});
   $("summarizeBtn").disabled = true;
   try {
+    if (isLocalMode()) {
+      await localSummarize();
+      return;
+    }
     const data = await api(`/api/v1/meetings/${state.meetingId}/summary`,
       { method: "POST", json: { language: $("summaryLang").value } });
     renderStatus({ status: data.status, error: null });
@@ -1783,15 +2289,123 @@ $("summarizeBtn").addEventListener("click", async () => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// 本機摘要（Bonsai 27B / MLX）：結果寫回裝置
+// ---------------------------------------------------------------------------
+function asArray(v) { return Array.isArray(v) ? v : []; }
+
+function normalizeLocalSummary(res, lang) {
+  const now = new Date().toISOString();
+  const parsed = (res && (res.json || res.summary)) || null;
+  const dateInput = $("uploadForm") && $("uploadForm").elements.date;
+  const sm = {
+    meeting_name: ($("meetingTitle") && $("meetingTitle").textContent) || "會議重點",
+    meeting_datetime: (dateInput && dateInput.value) || now.slice(0, 10),
+    headline: (parsed && parsed.headline) || "",
+    meeting_content: {
+      decisions: asArray(parsed && parsed.decisions).map((d) => ({
+        summary: d.summary || d.text || String(d),
+        evidence: asArray(d.evidence),
+      })),
+      action_items: asArray(parsed && parsed.action_items).map((a) => ({
+        assignees: asArray(a.assignees),
+        task: a.task || "",
+        due_date: a.due_date || null,
+        due_text: a.due_text || null,
+      })),
+      discussions: asArray(parsed && parsed.discussions).map((d) => ({
+        topic: d.topic || "",
+        summary: d.summary || "",
+        key_points: asArray(d.key_points),
+        evidence: asArray(d.evidence),
+      })),
+      reports: asArray(parsed && parsed.reports).map((r) => ({
+        topic: r.topic || "",
+        summary: r.summary || "",
+        evidence: asArray(r.evidence),
+      })),
+      next_meeting: (parsed && parsed.next_meeting) || { status: "not_mentioned" },
+    },
+    review_notes: asArray(parsed && parsed.review_notes),
+    language: lang,
+  };
+  if (!parsed && res && res.text) {
+    sm.meeting_content.discussions.push({
+      topic: "本機摘要", summary: String(res.text).slice(0, 6000), key_points: [], evidence: [],
+    });
+  }
+  return {
+    summary: sm,
+    model_name: (res && res.model) || "Bonsai 27B（本機）",
+    updated_at: now,
+    mode: "local",
+  };
+}
+
+async function localSummarize() {
+  const lang = $("summaryLang").value;
+  const segs = (state.transcript && state.transcript.segments) || [];
+  const text = segs.map((s) => `[${s.segment_id}] ${s.text}`).join("\n");
+  if (!text) throw new Error("沒有逐字稿可以摘要");
+
+  let mod;
+  try { mod = await import('@meetsum-local-llm'); }
+  catch (_) { throw new Error("本機摘要模組未安裝，請先下載模型"); }
+  const LLM = mod.MeetsumLocalLLM;
+  if (!LLM) throw new Error("本機摘要模組未安裝");
+
+  $("uploadCard").hidden = true;
+  $("progressCard").hidden = false;
+  renderStatus({ status: "summarizing", error: null });
+
+  let received = 0;
+  let listener = null;
+  try {
+    listener = await LLM.addListener("llmToken", (ev) => {
+      received += String((ev && ev.token) || "").length;
+      const st = $("statusText");
+      if (st) st.textContent = `本機摘要中… 已產生 ${received} 字`;
+    });
+  } catch (_) { listener = null; }
+
+  try {
+    const res = await LLM.summarize({
+      transcript: text,
+      language: lang,
+      meetingName: ($("meetingTitle") && $("meetingTitle").textContent) || "",
+      glossary: ((state.glossary && state.glossary.terms) || []).map((t) => t.term),
+    });
+    const data = normalizeLocalSummary(res, lang);
+    state.summary = data;
+    state.status = "completed";
+    renderStatus({ status: "completed", error: null });
+    syncSummaryLang();
+    renderSnapshot(data);
+    cacheSummary(data);
+    cacheMeeting({ status: "completed" });
+    $("summaryCard").hidden = false;
+    CapacitorBridge.hapticNotification('success').catch(() => {});
+  } finally {
+    if (listener && listener.remove) { try { listener.remove(); } catch (_) { /* ignore */ } }
+    $("summarizeBtn").disabled = false;
+  }
+}
+
 const NEXT_LABEL = { confirmed: "已確認", tentative: "暫定", not_mentioned: "未提及" };
 
 async function loadSummary() {
   let data;
   try { data = await api(`/api/v1/meetings/${state.meetingId}/summary`); }
-  catch (err) { showError($("jobError"), `讀取重點失敗：${err.message}`); return; }
+  catch (err) {
+    // 後端不在線時讀裝置上的副本
+    const cached = window.Store ? await Store.summaries.get(state.meetingId).catch(() => null) : null;
+    if (!cached) { showError($("jobError"), `讀取重點失敗：${err.message}`); return; }
+    data = cached;
+  }
   state.summary = data;
   syncSummaryLang();
   renderSnapshot(data);
+  cacheSummary(data);
   $("summaryCard").hidden = false;
 }
 

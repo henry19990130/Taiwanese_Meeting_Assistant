@@ -2,19 +2,59 @@ state.glossary = { terms: [], count: 0, limit: 200 };
 const termChecks = new Set();
 
 async function loadGlossary() {
+  if (state.appMode === "local" && window.Store) {
+    try {
+      const terms = await Store.glossary.list();
+      state.glossary = { terms, count: terms.length, limit: 200, max_length: 30 };
+      updateGlossaryUI();
+    } catch (_) { /* ignore */ }
+    return;
+  }
   try {
     state.glossary = await api("/api/v1/glossary");
-  } catch (_) { return; }
+    // 裝置是唯一真實來源：雲端拿到的詞庫同步一份到本機
+    if (window.Store) {
+      try { await Store.glossary.replaceAll(state.glossary.terms); } catch (_) { /* ignore */ }
+    }
+  } catch (_) {
+    if (!window.Store) return;
+    try {
+      const terms = await Store.glossary.list();
+      state.glossary = { terms, count: terms.length, limit: 200, max_length: 30 };
+    } catch (_) { return; }
+  }
   updateGlossaryUI();
 }
 
 async function addTerms(list) {
   const terms = list.map((t) => t.trim()).filter(Boolean);
   if (!terms.length) return null;
-  const out = await api("/api/v1/glossary", { method: "POST", json: { terms } });
-  state.glossary = out;
-  updateGlossaryUI();
-  return out.result;
+  try {
+    const out = await api("/api/v1/glossary", { method: "POST", json: { terms } });
+    state.glossary = out;
+    if (window.Store) {
+      try { await Store.glossary.replaceAll(out.terms); } catch (_) { /* ignore */ }
+    }
+    updateGlossaryUI();
+    return out.result;
+  } catch (err) {
+    // 本機模式（或後端離線）時直接寫進裝置
+    if (!window.Store) throw err;
+    const now = Date.now();
+    const result = { added: [], duplicated: [], over_limit: [], invalid: [] };
+    for (const term of terms) {
+      if (term.length > 30) { result.invalid.push(term); continue; }
+      const cur = await Store.glossary.list();
+      if (cur.some((t) => t.term === term)) { result.duplicated.push(term); continue; }
+      if (cur.length >= 200) { result.over_limit.push(term); continue; }
+      await Store.glossary.save({ id: `${now}_${Math.random().toString(36).slice(2, 8)}`, term });
+      result.added.push(term);
+    }
+    const fresh = await Store.glossary.list();
+    state.glossary = { terms: fresh, count: fresh.length, limit: 200, max_length: 30 };
+    updateGlossaryUI();
+    return result;
+  }
 }
 
 function addResultText(r) {
@@ -73,8 +113,13 @@ function renderGlossaryList() {
     del.addEventListener("click", async () => {
       try {
         state.glossary = await api(`/api/v1/glossary/${t.id}`, { method: "DELETE" });
-        updateGlossaryUI();
-      } catch (err) { showError($("gdMsg"), err.message); }
+      } catch (err) {
+        if (!window.Store) { showError($("gdMsg"), err.message); return; }
+        await Store.glossary.remove(t.id);
+        const terms = await Store.glossary.list();
+        state.glossary = { terms, count: terms.length, limit: 200, max_length: 30 };
+      }
+      updateGlossaryUI();
     });
     item.append(el("span", null, t.term), del);
     list.append(item);

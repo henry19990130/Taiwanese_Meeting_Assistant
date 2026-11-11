@@ -1,0 +1,18 @@
+name = "meetsum-discovery"
+main = "worker.js"
+compatibility_date = "2026-01-01"
+
+# 部署前先建立 KV namespace：
+#   npx wrangler kv namespace create MEETSUM_KV
+# 再把回傳的 id 貼到下面。
+[[kv_namespaces]]
+binding = "MEETSUM_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# 自訂網域（可選）：把 Worker 掛在 discover.<你的網域>
+# routes = [
+#   { pattern = "discover.example.com/*", custom_domain = true }
+# ]
+
+# Secrets（不要寫在檔案裡）：
+#   npx wrangler secret put PUSH_TOKEN

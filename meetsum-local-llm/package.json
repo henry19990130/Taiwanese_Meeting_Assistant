@@ -1,0 +1,31 @@
+{
+  "name": "meetsum-local-llm",
+  "version": "1.0.0",
+  "description": "Capacitor plugin for on-device LLM summarization with MLX (Bonsai 27B 1-bit)",
+  "main": "dist/esm/index.js",
+  "types": "dist/esm/index.d.ts",
+  "module": "dist/esm/index.js",
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch"
+  },
+  "keywords": [
+    "capacitor",
+    "plugin",
+    "mlx",
+    "llm",
+    "summary",
+    "ios",
+    "on-device"
+  ],
+  "author": "覓聲 MeetSum Team",
+  "license": "MIT",
+  "peerDependencies": {
+    "@capacitor/core": "^6.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/core": "^6.0.0",
+    "typescript": "^5.3.3"
+  }
+}

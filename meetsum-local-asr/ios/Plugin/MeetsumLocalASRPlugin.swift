@@ -267,54 +267,100 @@ public class MeetsumLocalASRPlugin: CAPPlugin, CAPBridgedPlugin {
         }
     }
 
-    /// BreezeASR 引擎實作 (預留介面，待 Core ML 模型可用時實作)
+    /// BreezeASR 引擎實作
     ///
-    /// BreezeASR 是 MediaTek 開發的針對台語/國語/英文優化的 ASR 模型
-    /// 目前階段：介面已定義，具體實作待 MediaTek 發布 Core ML 格式模型
-    /// 參考: https://github.com/MediaTek-Research/Breeze-ASR
+    /// Breeze-ASR-26 是 MediaTek 以 Whisper large-v3 為基礎、用約 1 萬小時台語語音微調的模型。
+    /// 官方與社群釋出的是 whisper.cpp 格式（GGML + CoreML encoder）；WhisperKit 需要
+    /// WhisperKit 的 CoreML 目錄結構，因此這裡讀取「已轉換好的 CoreML 模型資料夾」。
+    ///
+    /// 轉換方式見 tools/convert_breeze_whisperkit.sh（whisperkittools）。
+    /// 模型 repo 可用環境變數 MEETSUM_BREEZE_REPO 覆寫；預設是專案自架的轉換版本。
     final class BreezeASREngine: LocalASREngine {
         let engineId = "breezeasr"
-        let displayName = "BreezeASR (MediaTek)"
-        let supportedLanguages = ["zh", "nan", "hak", "en"]  // 台語、客語、國語、英文
-        let supportsDiarization = false  // BreezeASR 專注於 ASR，需搭配獨立 diarization
+        let displayName = "Breeze-ASR-26 (MediaTek, ANE encoder)"
+        let supportedLanguages = ["zh", "nan", "hak", "en"]
+        let supportsDiarization = false
 
-        private var model: Any?  // 預留 Core ML 模型
+        private var whisperKit: WhisperKit?
         private let plugin: MeetsumLocalASRPlugin
 
         init(plugin: MeetsumLocalASRPlugin) {
             self.plugin = plugin
         }
 
-        var isLoaded: Bool { model != nil }
+        var isLoaded: Bool { whisperKit != nil }
 
         func load(modelSize: String, quantization: String) async throws {
-            // TODO: 實作 BreezeASR Core ML 模型載入
-            // 需要 MediaTek 提供 .mlmodelc 格式模型
-            // 預期模型結構：
-            // - BreezeASREncoder.mlmodelc (音頻編碼器)
-            // - BreezeASRDecoder.mlmodelc (文本解碼器)
-            // - BreezeASRTokenizer (分詞器)
-            throw NSError(
-                domain: "MeetsumLocalASR",
-                code: 2001,
-                userInfo: [NSLocalizedDescriptionKey: "BreezeASR 引擎尚未實作，等待 MediaTek Core ML 模型發布"]
+            let folder = plugin.getModelFolder(modelSize: modelSize, quantization: quantization)
+            guard FileManager.default.fileExists(atPath: folder.path) else {
+                throw NSError(
+                    domain: "MeetsumLocalASR",
+                    code: 2001,
+                    userInfo: [NSLocalizedDescriptionKey:
+                        "找不到 Breeze CoreML 模型。請先下載模型，或執行 tools/convert_breeze_whisperkit.sh 轉換後放到 \(folder.path)"]
+                )
+            }
+            // WhisperKit 會優先使用 CoreML encoder（ANE），decoder 走 GPU/CPU。
+            let config = WhisperKitConfig(
+                modelFolder: folder.path,
+                verbose: true,
+                logLevel: .info,
+                prewarm: true,
+                load: true,
+                download: false
             )
+            self.whisperKit = try await WhisperKit(config)
         }
 
-        func unload() {
-            model = nil
-        }
+        func unload() { whisperKit = nil }
 
         func transcribe(audioPath: String, language: String, enableDiarization: Bool) async throws -> EngineTranscriptionResult {
-            throw NSError(
-                domain: "MeetsumLocalASR",
-                code: 2002,
-                userInfo: [NSLocalizedDescriptionKey: "BreezeASR 引擎尚未實作"]
+            guard let kit = whisperKit else {
+                throw NSError(domain: "MeetsumLocalASR", code: 2003,
+                              userInfo: [NSLocalizedDescriptionKey: "Breeze 模型尚未載入"])
+            }
+            // Breeze 以 Whisper 多語模型為基礎；台語／客語同樣使用 zh 語言 token，
+            // 由模型本身依聲學特徵辨識，不需要額外語言代碼。
+            let whisperLang: String
+            switch language {
+            case "nan", "hak", "zh": whisperLang = "zh"
+            case "en": whisperLang = "en"
+            default: whisperLang = "zh"
+            }
+            let options = DecodingOptions(
+                task: .transcribe,
+                language: whisperLang,
+                temperature: 0,
+                usePrefillPrompt: true,
+                withoutTimestamps: false,
+                chunkingStrategy: .vad
+            )
+            let results = try await kit.transcribe(audioPath: audioPath, decodeOptions: options)
+            guard let result = results.first else {
+                throw NSError(domain: "MeetsumLocalASR", code: 2002,
+                              userInfo: [NSLocalizedDescriptionKey: "轉錄結果為空"])
+            }
+            let segments = result.segments.enumerated().map { index, segment in
+                EngineTranscriptionSegment(
+                    id: index,
+                    start: segment.start,
+                    end: segment.end,
+                    text: segment.text,
+                    speaker: "SPEAKER_00",
+                    avgLogprob: segment.avgLogprob,
+                    noSpeechProb: segment.noSpeechProb,
+                    compressionRatio: segment.compressionRatio
+                )
+            }
+            return EngineTranscriptionResult(
+                segments: segments,
+                language: language,
+                duration: TimeInterval(segments.last?.end ?? 0)
             )
         }
     }
 
-    private func getModelFolder(modelSize: String, quantization: String) -> URL {
+    func getModelFolder(modelSize: String, quantization: String) -> URL {
         let documentsPath = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
         let modelsDir = documentsPath.appendingPathComponent("WhisperKitModels", isDirectory: true)
         return modelsDir.appendingPathComponent("\(modelSize)_\(quantization)", isDirectory: true)
@@ -341,13 +387,14 @@ public class MeetsumLocalASRPlugin: CAPPlugin, CAPBridgedPlugin {
             ["name": "small", "size_mb": 466, "path": "", "downloaded": false, "quantization": "q4_k", "engine": "whisperkit"],
             ["name": "large-v3-v20240930_626MB", "size_mb": 600, "path": "", "downloaded": false, "quantization": "q4_k", "engine": "whisperkit"],
             ["name": "large-v3-v20240930_turbo", "size_mb": 1600, "path": "", "downloaded": false, "quantization": "q4_k", "engine": "whisperkit"],
-            // BreezeASR-26 (MediaTek) - 台語/國語/英文優化，待 Core ML 模型發布後啟用
-            ["name": "breeze-asr-26-coreml", "size_mb": 800, "path": "", "downloaded": false, "quantization": "4bit", "engine": "breezeasr"],
+            // Breeze-ASR-26：台語／華語／客語／英語；encoder 轉成 CoreML 跑 ANE
+            ["name": "breeze-asr-26-coreml", "size_mb": 4300, "path": "", "downloaded": false, "quantization": "4bit", "engine": "breezeasr"],
         ].map { model in
             var m = model
             let folder = self.getModelFolder(modelSize: model["name"] as! String, quantization: model["quantization"] as! String)
-            m["downloaded"] = FileManager.default.fileExists(atPath: folder.path)
-            m["path"] = m["downloaded"] as! Bool ? folder.path : ""
+            let exists = FileManager.default.fileExists(atPath: folder.appendingPathComponent("config.json").path)
+            m["downloaded"] = exists
+            m["path"] = exists ? folder.path : ""
             return m
         }
 
@@ -371,7 +418,11 @@ public class MeetsumLocalASRPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         // 建立下載任務
-        let task = ModelDownloadTask(modelSize: modelSize, quantization: quantization, call: call)
+        let task = ModelDownloadTask(
+            modelSize: modelSize,
+            quantization: quantization,
+            plugin: self
+        )
         downloadsQueue.async(flags: .barrier) {
             self.activeDownloads[key] = task
         }
@@ -803,53 +854,126 @@ final class TranscriptionJob {
 final class ModelDownloadTask {
     let modelSize: String
     let quantization: String
-    let call: CAPPluginCall
+    weak var plugin: MeetsumLocalASRPlugin?
     private var cancelled = false
+    private var downloadTask: Task<URL, Error>?
 
-    init(modelSize: String, quantization: String, call: CAPPluginCall) {
+    init(modelSize: String, quantization: String, plugin: MeetsumLocalASRPlugin) {
         self.modelSize = modelSize
         self.quantization = quantization
-        self.call = call
+        self.plugin = plugin
     }
 
     func start() async throws {
-        // 這裡實際上會使用 WhisperKit 的模型下載功能
-        // 目前 WhisperKit 會在首次載入時自動下載
-        // 我們這裡模擬下載過程
-
-        let modelFolder = getModelFolder()
-        let modelPath = modelFolder.path
-
-        // 檢查是否已存在
-        if FileManager.default.fileExists(atPath: modelPath) {
+        let target = getModelFolder()
+        // 已有完整模型就直接結束
+        if FileManager.default.fileExists(atPath: target.appendingPathComponent("config.json").path) {
             return
         }
+        try FileManager.default.createDirectory(
+            at: target.deletingLastPathComponent(),
+            withIntermediateDirectories: true
+        )
 
-        // 建立目錄
-        try FileManager.default.createDirectory(at: modelFolder, withIntermediateDirectories: true)
-
-        // 這裡應該實作實際的模型下載邏輯
-        // WhisperKit 內部會處理從 HuggingFace 下載
-        // 我們這裡只做基本驗證
-
-        // 模擬下載進度回報
-        for i in 1...10 {
-            if cancelled { throw CancellationError() }
-            try await Task.sleep(nanoseconds: 500_000_000) // 0.5 秒
-            call.resolve([
-                "progress": DownloadProgress(
-                    modelName: "\(modelSize)_\(quantization)",
-                    progress: i * 10,
-                    status: .downloading,
-                    bytesDownloaded: Int64(i * 100_000_000),
-                    totalBytes: 1_000_000_000
-                ).toDictionary()
-            ])
+        let isBreeze = modelSize.hasPrefix("breeze")
+        // Breeze 需要先轉成 WhisperKit CoreML 格式；repo 可從 Info.plist 的
+        // BreezeModelRepo 或 UserDefaults("meetsum.breeze_repo") 覆寫。
+        var repo = UserDefaults.standard.string(forKey: "meetsum.breeze_repo")
+            ?? (Bundle.main.object(forInfoDictionaryKey: "BreezeModelRepo") as? String)
+            ?? ""
+        repo = repo.trimmingCharacters(in: .whitespacesAndNewlines)
+        var variant = (Bundle.main.object(forInfoDictionaryKey: "BreezeModelVariant") as? String) ?? ""
+        variant = variant.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isBreeze && repo.isEmpty {
+            throw NSError(
+                domain: "MeetsumLocalASR",
+                code: 2100,
+                userInfo: [NSLocalizedDescriptionKey:
+                    "尚未設定 Breeze 模型來源。請把轉換好的 CoreML 資料夾放到 Documents/WhisperKitModels/breeze-asr-26-coreml_4bit，或在 Info.plist 設定 BreezeModelRepo 後重新下載。"]
+            )
         }
+        if isBreeze && variant.isEmpty {
+            // whisperkit-generate-model 的資料夾名稱帶有大小，例如
+            // MediaTek-Research_Breeze-ASR-26_632MB，因此向 HF 查實際名稱。
+            guard let resolved = try await Self.resolveBreezeVariant(repo: repo) else {
+                throw NSError(
+                    domain: "MeetsumLocalASR",
+                    code: 2101,
+                    userInfo: [NSLocalizedDescriptionKey:
+                        "在 \(repo) 找不到 Breeze 模型資料夾，請確認已上傳轉換後的 CoreML 模型。"]
+                )
+            }
+            variant = resolved
+        }
+
+        emit(progress: 0, status: .downloading)
+        let downloaded = try await WhisperKit.download(
+            variant: isBreeze ? variant : modelSize,
+            from: isBreeze ? repo : "argmaxinc/whisperkit-coreml"
+        ) { progress in
+            let pct = Int(progress.fractionCompleted * 100)
+            self.emit(progress: pct, status: .downloading)
+        }
+        if cancelled { throw CancellationError() }
+
+        // WhisperKit 會下載到自己的快取；移到我們管理的資料夾
+        if downloaded.standardizedFileURL != target.standardizedFileURL {
+            let fm = FileManager.default
+            if fm.fileExists(atPath: target.path) { try fm.removeItem(at: target) }
+            try fm.copyItem(at: downloaded, to: target)
+        }
+        emit(progress: 100, status: .completed)
     }
 
     func cancel() {
         cancelled = true
+        downloadTask?.cancel()
+    }
+
+    /// 向 Hugging Face 查詢 repo 內的模型資料夾名稱。
+    ///
+    /// `whisperkit-generate-model` 產生的名稱形如
+    /// `MediaTek-Research_Breeze-ASR-26_632MB`，大小會隨量化與模型版本變動，
+    /// 所以不寫死；多個 variant 時挑 MB 最小的（量化最多，最適合手機）。
+    static func resolveBreezeVariant(repo: String) async throws -> String? {
+        guard let url = URL(string: "https://huggingface.co/api/models/\(repo)/tree/main") else {
+            return nil
+        }
+        var req = URLRequest(url: url)
+        req.timeoutInterval = 30
+        req.setValue("MeetSum/1.2 (iOS; on-device)", forHTTPHeaderField: "User-Agent")
+        let (data, res) = try await URLSession.shared.data(for: req)
+        guard let http = res as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            return nil
+        }
+        guard let items = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]] else {
+            return nil
+        }
+        let folders = items.compactMap { item -> String? in
+            guard (item["type"] as? String) == "directory" else { return nil }
+            let path = item["path"] as? String ?? ""
+            return path.isEmpty ? nil : path
+        }.filter { $0.lowercased().contains("breeze") }
+        guard !folders.isEmpty else { return nil }
+
+        func sizeMB(_ name: String) -> Int {
+            guard let range = name.range(of: #"(\d+)MB$"#, options: .regularExpression) else {
+                return Int.max
+            }
+            return Int(name[range].dropLast(2)) ?? Int.max
+        }
+        return folders.min { sizeMB($0) < sizeMB($1) }
+    }
+
+    private func emit(progress: Int, status: DownloadProgress.DownloadStatus, error: String? = nil) {
+        guard let plugin else { return }
+        let payload = DownloadProgress(
+            modelName: "\(modelSize)_\(quantization)",
+            progress: progress,
+            status: status,
+            error: error
+        )
+        plugin.notifyListeners("transcriptionProgress", data: payload.toDictionary())
     }
 
     private func getModelFolder() -> URL {

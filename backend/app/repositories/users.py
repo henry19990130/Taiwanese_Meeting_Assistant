@@ -12,13 +12,34 @@ INSERT INTO users (id, username, password_hash, display_name)
 VALUES (%s, %s, %s, %s)
 RETURNING id, username, display_name
 """
+SQL_INSERT_GOOGLE = """
+INSERT INTO users (id, username, password_hash, display_name, google_sub, email)
+VALUES (%s, %s, NULL, %s, %s, %s)
+RETURNING id, username, display_name
+"""
 SQL_BY_USERNAME = "SELECT id, username, password_hash, display_name FROM users WHERE username = %s"
 SQL_BY_ID = "SELECT id, username, display_name FROM users WHERE id = %s"
+SQL_BY_GOOGLE = "SELECT id, username, display_name, google_sub, email FROM users WHERE google_sub = %s"
 SQL_SET_PASSWORD = "UPDATE users SET password_hash = %s WHERE username = %s RETURNING id, username"
+SQL_LINK_GOOGLE = "UPDATE users SET google_sub = %s, email = %s WHERE id = %s RETURNING id, username, display_name"
 
 
 def create_user(conn, username: str, password_hash: str, display_name: str | None = None) -> dict:
     return conn.execute(SQL_INSERT, (uuid.uuid4(), username, password_hash, display_name)).fetchone()
+
+
+def create_google_user(conn, username: str, display_name: str | None, google_sub: str, email: str | None) -> dict:
+    return conn.execute(
+        SQL_INSERT_GOOGLE, (uuid.uuid4(), username, display_name, google_sub, email)
+    ).fetchone()
+
+
+def get_by_google_sub(conn, google_sub: str) -> dict | None:
+    return conn.execute(SQL_BY_GOOGLE, (google_sub,)).fetchone()
+
+
+def link_google(conn, user_id, google_sub: str, email: str | None) -> dict | None:
+    return conn.execute(SQL_LINK_GOOGLE, (google_sub, email, as_uuid(user_id))).fetchone()
 
 
 def get_by_username(conn, username: str) -> dict | None:

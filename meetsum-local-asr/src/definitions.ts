@@ -27,7 +27,13 @@ export interface TranscriptionOptions {
    * 量化等級
    * @default "q4_k"
    */
-  quantization?: "q4_k" | "q5_k" | "q8_0" | "fp16";
+  quantization?: "q4_k" | "q5_k" | "q8_0" | "fp16" | "4bit";
+
+  /**
+   * ASR 引擎：whisperkit（一般 Whisper）或 breezeasr（Breeze-ASR-26 CoreML）
+   * @default "whisperkit"
+   */
+  engine?: "whisperkit" | "breezeasr";
 
   /**
    * 是否使用 VAD (語音活動偵測) 過濾靜音

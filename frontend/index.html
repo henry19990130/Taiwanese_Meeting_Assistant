@@ -37,8 +37,10 @@
       <li data-flow="summary"><span>04</span>重點</li>
     </ol>
     <div class="user" id="userBox" hidden>
+      <span class="mode-badge" id="modeBadge" hidden>本機</span>
       <span id="userName"></span>
       <button class="btn ghost small" id="serverBtnTop" type="button" title="設定後端伺服器位址">伺服器…</button>
+      <button class="btn ghost small" id="switchModeBtn" type="button" title="切換本機／雲端模式">切換模式</button>
       <button class="btn ghost small" id="logoutBtn" type="button">登出</button>
     </div>
   </header>
@@ -57,13 +59,35 @@
         <div class="login-main">
           <p class="eyebrow">AI 智慧會議紀錄與摘要系統　·　<span id="loginGreeting">早安</span></p>
           <h2 class="login-title">讓聲音被理解，<br>讓重點被記住。</h2>
+
+          <div class="mode-choice" id="modeChoice" role="radiogroup" aria-label="執行模式">
+            <button class="mode-card is-active" type="button" id="modeCloudBtn" aria-pressed="true">
+              <span class="mode-card-title">雲端模式</span>
+              <span class="mode-card-desc">連到 Colab 後端，Google 或帳密登入</span>
+            </button>
+            <button class="mode-card" type="button" id="modeLocalBtn" aria-pressed="false">
+              <span class="mode-card-title">本機模式</span>
+              <span class="mode-card-desc">免登入，模型與資料都在這台裝置</span>
+            </button>
+          </div>
+
           <form id="loginForm" class="login-form" autocomplete="on">
+            <button class="btn ghost pill-btn google-btn" type="button" id="googleLoginBtn">
+              <span class="g-mark" aria-hidden="true">G</span> 使用 Google 登入
+            </button>
+            <div class="or-divider" role="separator"><span>或使用帳號密碼</span></div>
             <label>帳號<input class="line-input" name="username" required autocomplete="username" placeholder="你的帳號"></label>
             <label>密碼<input class="line-input" name="password" type="password" required autocomplete="current-password"></label>
             <p class="error" id="loginError" hidden></p>
             <button class="btn primary pill-btn" type="submit">進入會議室 <span aria-hidden="true">→</span></button>
             <button class="linkish" type="button" id="showRegister">建立帳號</button>
           </form>
+
+          <div id="localEntry" class="login-form" hidden>
+            <p class="hint" id="localEntryHint">本機模式會使用這台裝置的模型與儲存空間，不需要登入，也不會把音檔傳到任何伺服器。</p>
+            <button class="btn primary pill-btn" type="button" id="localEnterBtn">進入本機模式 <span aria-hidden="true">→</span></button>
+            <button class="linkish" type="button" id="localModelBtn">管理本機模型</button>
+          </div>
           <form id="registerForm" class="login-form" hidden novalidate>
             <label><span>怎麼稱呼您 <span class="opt">（選填）</span></span>
               <input class="line-input" name="display_name" maxlength="20" autocomplete="nickname"
@@ -101,7 +125,7 @@
         </div>
         <div class="login-foot">
           <button class="linkish" type="button" id="serverBtn" title="設定後端伺服器位址">伺服器：<span id="serverLabel"></span></button>
-          <span>雲端模式 · 台語＋華語辨識</span>
+          <span id="loginModeLabel">雲端模式 · 台語＋華語辨識</span>
         </div>
       </div>
     </section>
@@ -129,7 +153,9 @@
             <div class="asr-mode" id="asrModeField">
               <div class="source" role="radiogroup" aria-label="辨識模式">
                 <span class="source-title">辨識模式</span>
-                <label class="choice"><input type="radio" name="asr_mode" value="cloud" checked> 雲端模式</label>
+                <span class="mode-pill" id="asrModeLabel">雲端模式</span>
+                <input type="radio" name="asr_mode" value="cloud" checked hidden>
+                <input type="radio" name="asr_mode" value="local" hidden>
               </div>
               <small class="hint" id="asrModeHint">雲端模式：上傳至伺服器辨識，支援多語言與聲紋識別</small>
             </div>
@@ -369,6 +395,16 @@
       <button class="btn ghost small" type="button" id="serverTest">測試連線</button>
       <button class="btn ghost small" type="button" id="serverClear">回到預設（建置時的位址）</button>
     </div>
+  </dialog>
+
+  <dialog class="glossary-dialog" id="modelDialog">
+    <div class="gd-head">
+      <h2>本機模型</h2>
+      <button class="btn ghost small" id="mdClose" type="button">關閉</button>
+    </div>
+    <p class="hint" id="mdDevice">本機模式會把 ASR 與摘要模型下載到這台裝置；不下載也能登入使用雲端模式。</p>
+    <div class="model-list" id="mdList"></div>
+    <p class="gd-msg" id="mdMsg" hidden></p>
   </dialog>
 
   <div id="printDeck" aria-hidden="true"></div>

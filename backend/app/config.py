@@ -60,3 +60,14 @@ MAX_UPLOAD_MB = int(os.getenv("MAX_UPLOAD_MB", "500"))
 FRONTEND_DIR = PROJECT_DIR / "frontend"
 
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "28800"))
+
+# ---------------------------------------------------------------------------
+# Google 登入（雲端模式；本機模式不需要登入）
+# 於 Google Cloud Console 建立「Web application」OAuth 用戶端後填入。
+# ---------------------------------------------------------------------------
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
+# 後端對外位址（Colab tunnel / 正式主機），用來組 OAuth callback
+GOOGLE_REDIRECT_BASE = os.getenv("GOOGLE_REDIRECT_BASE", "http://localhost:8000").rstrip("/")
+# App 深層連結 scheme（Info.plist 的 CFBundleURLSchemes）
+APP_URL_SCHEME = os.getenv("APP_URL_SCHEME", "meetsum")

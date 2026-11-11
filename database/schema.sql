@@ -104,3 +104,12 @@ CREATE INDEX IF NOT EXISTS user_terms_user_idx ON user_terms (user_id, created_a
 
 -- ↓↓↓ 舊資料庫遷移區（user_terms）：不可刪 ↓↓↓
 ALTER TABLE user_terms ALTER COLUMN term TYPE VARCHAR(30);   -- 舊資料庫原為 VARCHAR(50)；需先確認無超過 30 字的資料
+
+-- ============================================================
+-- Google 登入支援（v1.2.0）：使用者可用 Google 帳號登入（僅雲端模式）
+-- password_hash 允許 NULL（純 Google 帳號沒有密碼）
+-- ============================================================
+ALTER TABLE users ADD COLUMN IF NOT EXISTS google_sub VARCHAR(64);
+ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(255);
+ALTER TABLE users ALTER COLUMN password_hash DROP NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS users_google_sub_key ON users (google_sub) WHERE google_sub IS NOT NULL;

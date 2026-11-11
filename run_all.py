@@ -260,6 +260,42 @@ if 'backend' in STEPS:
 
 
 # ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+def _secret(name):
+    """依序從環境變數、.env、Colab 金鑰取得設定值。"""
+    val = os.environ.get(name) or ENV.get(name)
+    if val:
+        return val
+    try:
+        from google.colab import userdata
+        return userdata.get(name)
+    except Exception:
+        return None
+
+
+def publish_discovery(url):
+    """把當前的臨時網址發佈到 Cloudflare Worker 固定入口，App 才能自動找到後端。"""
+    endpoint = _secret('DISCOVERY_URL')
+    token = _secret('DISCOVERY_PUSH_TOKEN')
+    if not endpoint or not token:
+        print('ℹ️ 未設定 DISCOVERY_URL / DISCOVERY_PUSH_TOKEN，略過發佈固定入口')
+        return False
+    try:
+        req = urllib.request.Request(
+            endpoint,
+            data=json.dumps({'url': url}).encode(),
+            headers={'Content-Type': 'application/json',
+                     'Authorization': f'Bearer {token}'},
+            method='POST')
+        with urllib.request.urlopen(req, timeout=15) as res:
+            body = res.read().decode(errors='replace')
+        print('✅ 已發佈固定入口（App 會自動連上）：', body[:200])
+        return True
+    except Exception as exc:
+        print('⚠️ 發佈固定入口失敗（不影響本地使用）：', exc)
+        return False
+
+
 PUBLIC_URL = globals().get('PUBLIC_URL')
 if 'tunnel' in STEPS and USE_TUNNEL:
     step('⑤ 開臨時網址')
@@ -297,6 +333,7 @@ if 'tunnel' in STEPS and USE_TUNNEL:
         print()
     if PUBLIC_URL:
         print('✅ 臨時網址已可使用')
+        publish_discovery(PUBLIC_URL)
     else:
         print('❌ 臨時網址沒有建立成功，cloudflared log 最後幾行：')
         print(open(TUNNEL_LOG).read()[-1500:])

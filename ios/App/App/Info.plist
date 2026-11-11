@@ -91,5 +91,28 @@
 	</array>
 	<key>UIViewControllerBasedStatusBarAppearance</key>
 	<true/>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLName</key>
+			<string>com.meetsum.app</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>meetsum</string>
+			</array>
+		</dict>
+	</array>
+	<!-- Breeze-ASR-26 轉換後的 WhisperKit CoreML 模型（Hugging Face repo id）。
+	     留空時改用 Documents/WhisperKitModels/breeze-asr-26-coreml_4bit 內的資料夾。 -->
+	<key>BreezeModelRepo</key>
+	<string></string>
+	<key>BreezeModelVariant</key>
+	<string></string>
+	<!-- 留空＝自動到 repo 查詢（資料夾名稱含模型大小，例如 MediaTek-Research_Breeze-ASR-26_632MB） -->
+	<!-- 允許使用者用 Finder／Files 放入模型檔 -->
+	<key>UIFileSharingEnabled</key>
+	<true/>
+	<key>LSSupportsOpeningDocumentsInPlace</key>
+	<true/>
 </dict>
 </plist>

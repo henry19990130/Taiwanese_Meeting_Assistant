@@ -1,6 +1,12 @@
 from __future__ import annotations
 
+import secrets
+import time
+import urllib.parse
+
+import httpx
 from fastapi import APIRouter, Depends, Request, Response, status
+from fastapi.responses import RedirectResponse
 from psycopg.errors import UniqueViolation
 from pydantic import BaseModel, Field
 
@@ -206,3 +212,160 @@ def logout(request: Request, user: dict = Depends(get_current_user)) -> Response
 @router.get("/me")
 def me(user: dict = Depends(get_current_user)) -> dict:
     return _user_out(user)
+
+
+# ---------------------------------------------------------------------------
+# Google 登入（僅雲端模式）
+#
+# 流程：
+#   1. App 呼叫 GET /auth/google/start → 取得 Google 授權網址
+#   2. App 用系統瀏覽器開啟授權網址
+#   3. Google 導回 GET /auth/google/callback → 後端換 token、建立使用者與 session
+#   4. 後端以 302 導回 meetsum://auth?token=... ，App 攔截深層連結完成登入
+#
+# 不使用原生 Google SDK，因此換簽章 bundle id 也不會壞。
+# ---------------------------------------------------------------------------
+
+_OAUTH_STATES: dict[str, float] = {}
+_STATE_TTL = 600  # 10 分鐘
+_USERINFO_URL = "https://www.googleapis.com/oauth2/v3/userinfo"
+_TOKEN_URL = "https://oauth2.googleapis.com/token"
+_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
+
+
+def _prune_states() -> None:
+    now = time.time()
+    for key in [k for k, ts in _OAUTH_STATES.items() if now - ts > _STATE_TTL]:
+        _OAUTH_STATES.pop(key, None)
+
+
+def _redirect_base(request: Request) -> str:
+    """Google 導回網址的基底。
+
+    優先使用 GOOGLE_REDIRECT_BASE；但 Colab 每次啟動的 tunnel 網域都不同，
+    所以設定為空或 localhost 時，改以本次請求的來源推導（支援反向代理的
+    X-Forwarded-* 標頭）。start 與 callback 都走同一個函式，兩邊才會一致。
+    """
+    base = (config.GOOGLE_REDIRECT_BASE or "").rstrip("/")
+    if base and "localhost" not in base and "127.0.0.1" not in base:
+        return base
+    proto = request.headers.get("x-forwarded-proto") or request.url.scheme or "http"
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    if host:
+        return f"{proto.split(',')[0].strip()}://{host.split(',')[0].strip()}".rstrip("/")
+    if base:
+        return base
+    return str(request.base_url).rstrip("/")
+
+
+def _safe_username(email: str | None, sub: str) -> str:
+    base = (email or "").split("@")[0]
+    base = "".join(ch for ch in base if ch.isalnum() or ch == "_")
+    if len(base) < 3:
+        base = f"google_{sub[:8]}"
+    return base[:28]
+
+
+def _unique_username(conn, wanted: str) -> str:
+    if users.get_by_username(conn, wanted) is None:
+        return wanted
+    for i in range(1, 1000):
+        suffix = f"_{i}"
+        candidate = wanted[: max(3, 32 - len(suffix))] + suffix
+        if users.get_by_username(conn, candidate) is None:
+            return candidate
+    return f"google_{secrets.token_hex(6)}"
+
+
+@router.get("/google/start")
+def google_start(request: Request) -> dict:
+    if not config.GOOGLE_CLIENT_ID or not config.GOOGLE_CLIENT_SECRET:
+        raise api_error(
+            status.HTTP_501_NOT_IMPLEMENTED,
+            "GOOGLE_NOT_CONFIGURED",
+            "後端尚未設定 Google 登入（GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET）",
+        )
+    _prune_states()
+    state = secrets.token_urlsafe(24)
+    _OAUTH_STATES[state] = time.time()
+    redirect_uri = f"{_redirect_base(request)}/api/v1/auth/google/callback"
+    params = {
+        "client_id": config.GOOGLE_CLIENT_ID,
+        "redirect_uri": redirect_uri,
+        "response_type": "code",
+        "scope": "openid email profile",
+        "state": state,
+        "access_type": "online",
+        "prompt": "select_account",
+    }
+    return {"auth_url": f"{_AUTH_URL}?{urllib.parse.urlencode(params)}", "state": state}
+
+
+def _deep_link(**params: str) -> str:
+    return f"{config.APP_URL_SCHEME}://auth?{urllib.parse.urlencode(params)}"
+
+
+@router.get("/google/callback")
+def google_callback(request: Request, code: str = "", state: str = "", error: str = ""):
+    if error:
+        return RedirectResponse(_deep_link(error=error))
+    if not code or not state:
+        return RedirectResponse(_deep_link(error="missing_code"))
+    created = _OAUTH_STATES.pop(state, None)
+    if created is None or time.time() - created > _STATE_TTL:
+        return RedirectResponse(_deep_link(error="invalid_state"))
+
+    redirect_uri = f"{_redirect_base(request)}/api/v1/auth/google/callback"
+    try:
+        with httpx.Client(timeout=15) as client:
+            token_res = client.post(
+                _TOKEN_URL,
+                data={
+                    "code": code,
+                    "client_id": config.GOOGLE_CLIENT_ID,
+                    "client_secret": config.GOOGLE_CLIENT_SECRET,
+                    "redirect_uri": redirect_uri,
+                    "grant_type": "authorization_code",
+                },
+            )
+            token_res.raise_for_status()
+            access_token = token_res.json().get("access_token")
+            if not access_token:
+                return RedirectResponse(_deep_link(error="no_access_token"))
+            info_res = client.get(
+                _USERINFO_URL, headers={"Authorization": f"Bearer {access_token}"}
+            )
+            info_res.raise_for_status()
+            info = info_res.json()
+    except Exception:
+        return RedirectResponse(_deep_link(error="google_exchange_failed"))
+
+    sub = str(info.get("sub") or "")
+    email = info.get("email")
+    name = info.get("name") or email
+    if not sub:
+        return RedirectResponse(_deep_link(error="no_sub"))
+
+    try:
+        with get_conn() as conn:
+            user = users.get_by_google_sub(conn, sub)
+            if user is None:
+                username = _unique_username(conn, _safe_username(email, sub))
+                user = users.create_google_user(
+                    conn, username, (name or username)[:20], sub, email
+                )
+            token = _open_session(conn, user)
+    except UniqueViolation:
+        return RedirectResponse(_deep_link(error="account_conflict"))
+    except Exception:
+        return RedirectResponse(_deep_link(error="db_error"))
+
+    audit.record(
+        user_id=user["id"],
+        username=user["username"],
+        ip="google-oauth",
+        action="Google 登入成功",
+        detail={},
+        secrets=(token,),
+    )
+    return RedirectResponse(_deep_link(token=token))

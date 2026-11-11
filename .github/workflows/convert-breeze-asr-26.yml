@@ -21,21 +21,30 @@ on:
           - 4bit
           - 8bit
       hf_repo:
-        description: 'Hugging Face repo to upload to (e.g., username/breeze-asr-26-whisperkit-coreml)'
+        description: 'Hugging Face repo to upload to (e.g., username/breeze-asr-26-whisperkit)'
         required: false
         default: ''
         type: string
       hf_private:
         description: 'Make HF repo private'
         required: false
-        default: 'false'
+        default: false
+        type: boolean
+      run_ios_test:
+        description: 'Also compile the iOS app (slower, needs npm install)'
+        required: false
+        default: false
         type: boolean
 
 jobs:
   convert:
     name: Convert to Core ML
     runs-on: macos-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
+    permissions:
+      contents: write
+    outputs:
+      model_slug: ${{ steps.vars.outputs.model_slug }}
 
     steps:
       - name: Checkout repository
@@ -50,35 +59,24 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install coremltools torch transformers huggingface_hub tqdm
-          # Install whisperkittools from GitHub (not on PyPI)
+          # WhisperKitTools 對版本很敏感；照 setup.py 的 pin 安裝
+          pip install "torch==2.5.0" "transformers==4.53" "numpy<2.4.0" coremltools huggingface_hub
           pip install git+https://github.com/argmaxinc/WhisperKitTools.git
-
-      - name: Check GPU
-        run: |
-          python -c "
-          import torch
-          print(f'MPS available: {torch.backends.mps.is_available()}')
-          if torch.backends.mps.is_available():
-              print('Using Apple Silicon GPU (MPS)')
-          else:
-              print('No GPU - using CPU (will be slow)')
-          "
 
       - name: Set model version slug
         id: vars
         run: |
-          echo "model_slug=$(echo '${{ github.event.inputs.model_version }}' | sed 's|/|-|g')" >> $GITHUB_OUTPUT
+          slug="$(echo '${{ github.event.inputs.model_version }}' | sed 's|/|-|g')"
+          echo "model_slug=${slug}" >> "$GITHUB_OUTPUT"
 
       - name: Convert model
         env:
-          MODEL_REPO_ID: ${{ github.event.inputs.model_version }}
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          python -m whisperkittools.scripts.generate_model \
-            --model-version "${MODEL_REPO_ID}" \
+          python scripts/convert_breeze_asr_26.py \
+            --model-version "${{ github.event.inputs.model_version }}" \
             --output-dir ./breeze-asr-coreml \
-            ${{ github.event.inputs.quantize != 'none' && '--generate-quantized-variants' || '' }}
+            --quantize "${{ github.event.inputs.quantize }}"
 
       - name: Verify output
         run: |
@@ -88,64 +86,78 @@ jobs:
         if: github.event.inputs.hf_repo != ''
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
-          HF_REPO: ${{ github.event.inputs.hf_repo }}
-          HF_PRIVATE: ${{ github.event.inputs.hf_private }}
         run: |
-          python scripts/convert_breeze_asr_26.py --verify-only --output-dir ./breeze-asr-coreml --hf-repo "${HF_REPO}" --hf-token "${HF_TOKEN}" --hf-private "${HF_PRIVATE}"
+          extra=""
+          if [ "${{ github.event.inputs.hf_private }}" = "true" ]; then extra="--hf-private"; fi
+          python scripts/convert_breeze_asr_26.py \
+            --verify-only \
+            --output-dir ./breeze-asr-coreml \
+            --hf-repo "${{ github.event.inputs.hf_repo }}" \
+            --hf-token "${HF_TOKEN}" \
+            $extra
 
-      - name: Create release archive
+      - name: Create release archives
         run: |
           cd breeze-asr-coreml
-          zip -r ../breeze-asr-coreml-${{ steps.vars.outputs.model_slug }}.zip .
+          for dir in */; do
+            name="${dir%/}"
+            [ -f "$name/config.json" ] || continue
+            zip -q -r "../${name}.zip" "$name"
+          done
+          cd ..
+          ls -lh *.zip
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: breeze-asr-coreml-${{ steps.vars.outputs.model_slug }}
-          path: breeze-asr-coreml-*.zip
+          path: '*.zip'
           retention-days: 30
 
-      - name: Create GitHub Release (on success)
+      - name: Create GitHub Release
         if: success()
         uses: softprops/action-gh-release@v2
         with:
           tag_name: breeze-asr-coreml-${{ steps.vars.outputs.model_slug }}-${{ github.run_number }}
           name: Breeze-ASR Core ML ${{ github.event.inputs.model_version }} (WhisperKit)
-          files: breeze-asr-coreml-*.zip
+          files: '*.zip'
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   test-ios:
-    name: Test iOS Build
+    name: Compile iOS App
     needs: convert
+    if: github.event.inputs.run_ios_test == 'true'
     runs-on: macos-latest
     timeout-minutes: 60
-    if: github.repository == 'your-org/Taiwanese_Meeting_Assistant'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download model artifact
-        uses: actions/download-artifact@v4
+      - name: Set up Node
+        uses: actions/setup-node@v4
         with:
-          name: breeze-asr-coreml-${{ needs.convert.outputs.model_slug }}
-          path: ios/App/Models
+          node-version: '20'
+          cache: 'npm'
 
-      - name: Extract model
+      - name: Install web dependencies
+        run: npm ci
+
+      - name: Build web assets and copy to iOS
         run: |
-          cd ios/App/Models
-          unzip -o breeze-asr-coreml-*.zip -d breeze-asr-coreml
+          npm run build
+          npx cap copy ios
 
-      - name: Build iOS App
+      - name: Resolve Swift packages
         run: |
-          cd ios/App/CapApp-SPM
-          xcodebuild -scheme CapApp-SPM -destination generic/platform=iOS -configuration Debug build
+          xcodebuild -project ios/App/App.xcodeproj -scheme App \
+            -resolvePackageDependencies
 
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: iOS-App-Build
-          path: ios/App/CapApp-SPM/.build
-          retention-days: 7
+      - name: Compile (no signing)
+        run: |
+          xcodebuild -project ios/App/App.xcodeproj -scheme App \
+            -configuration Debug -sdk iphonesimulator \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO build
