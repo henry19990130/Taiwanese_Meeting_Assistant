@@ -299,3 +299,13 @@ $("selTermOnly").addEventListener("click", async () => {
     rpMessage(addResultText(r), r && r.over_limit.length);
   } catch (err) { showError($("rpError"), err.message); }
 });
+
+// app.js 是另一個 ES module，看不到這裡的區域函式；用 window 明確分享。
+window.Glossary = {
+  load: loadGlossary,
+  update: updateGlossaryUI,
+  addTerms,
+  open: openGlossary,
+  renderTermCandidates,
+  hideSelBar,
+};

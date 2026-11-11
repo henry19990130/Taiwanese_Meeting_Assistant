@@ -1021,7 +1021,7 @@ function showApp() {
   if ($("serverBtnTop")) $("serverBtnTop").hidden = isLocalMode();
   if (window.Entrance) Entrance.greet(displayName());
   resetMeeting();
-  if (typeof loadGlossary === "function") loadGlossary();
+  if (window.Glossary) window.Glossary.load();
   if (window.assistant) window.assistant.onLogin();
   if (window.MeetUI) MeetUI.loadInfo();
 }
@@ -1727,7 +1727,7 @@ async function loadTranscript() {
 }
 
 function renderTranscript() {
-  if (typeof hideSelBar === "function") hideSelBar();
+  if (window.Glossary) window.Glossary.hideSelBar();
   const list = $("transcriptList");
   const keep = list.scrollTop;
   const editable = state.status === "reviewing";
@@ -2235,7 +2235,7 @@ function updateReviewUI() {
   probs.replaceChildren(...p.problems.map((x) => el("li", null, x)));
   probs.hidden = !p.problems.length;
   renderReviewItem();
-  if (typeof renderTermCandidates === "function") renderTermCandidates();
+  if (window.Glossary) window.Glossary.renderTermCandidates();
 }
 
 function renderReviewItem() {
