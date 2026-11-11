@@ -44,15 +44,15 @@ function openGlossary() {
   $("gdInput").focus();
 }
 $("glossaryBtn").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('light');
+  CapacitorBridge.hapticImpact('light').catch(() => {});
   openGlossary();
 });
 $("rpGlossaryBtn").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('light');
+  CapacitorBridge.hapticImpact('light').catch(() => {});
   openGlossary();
 });
 $("gdClose").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('light');
+  CapacitorBridge.hapticImpact('light').catch(() => {});
   $("glossaryDialog").close();
 });
 
@@ -212,7 +212,7 @@ document.addEventListener("mousedown", (e) => {
   if (!$("selBar").hidden && !$("selBar").contains(e.target)) hideSelBar();
 });
 $("selClose").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('light');
+  CapacitorBridge.hapticImpact('light').catch(() => {});
   hideSelBar();
 });
 
@@ -233,11 +233,11 @@ async function doReplace(all) {
   } catch (err) { showError($("rpError"), err.message); }
 }
 $("selOne").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('medium');
+  CapacitorBridge.hapticImpact('medium').catch(() => {});
   doReplace(false);
 });
 $("selAll").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('medium');
+  CapacitorBridge.hapticImpact('medium').catch(() => {});
   doReplace(true);
 });
 $("selInput").addEventListener("keydown", (e) => {
@@ -245,7 +245,7 @@ $("selInput").addEventListener("keydown", (e) => {
   if (e.key === "Escape") hideSelBar();
 });
 $("selTermOnly").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('light');
+  CapacitorBridge.hapticImpact('light').catch(() => {});
   const info = sel.info;
   if (!info) return;
   try {

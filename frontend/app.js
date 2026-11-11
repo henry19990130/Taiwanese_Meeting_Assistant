@@ -146,6 +146,13 @@ if ($("serverDialog")) {
 // 供其他模組（ui.js 等）與偵錯使用
 window.MeetSumConfig = { getServerUrl, setServerUrl, apiUrl, testServer, DEFAULT_API_BASE };
 
+// 這些模組原本是共用全域的 classic scripts，被打包成 ES modules 後
+// module scope 不互通，明確掛到 window 供 deck.js / glossary.js / assistant.js 使用
+window.$ = $;
+window.state = state;
+window.api = api;
+window.showError = showError;
+
 // Capacitor Bridge - 掛載到 window 供其他模組使用
 import * as CapacitorBridge from './capacitor.js';
 window.CapacitorBridge = CapacitorBridge;
@@ -158,10 +165,14 @@ const USER_KEY = 'meetsum.auth_user';
 document.addEventListener('DOMContentLoaded', async () => {
   try {
     await CapacitorBridge.initCapacitor();
-    // 嘗試從安全儲存載入 token
-    await loadStoredAuth();
   } catch (err) {
     console.warn('[Capacitor] 初始化失敗:', err);
+  }
+  // 與 initCapacitor 分開，避免初始化失敗連帶跳過登入狀態還原
+  try {
+    await loadStoredAuth();
+  } catch (err) {
+    console.warn('[Auth] 載入儲存的認證失敗:', err);
   }
 });
 const STEP_ORDER = ["uploaded", "transcribing", "proofreading", "reviewing", "summarizing", "completed"];
@@ -312,17 +323,17 @@ async function enterRoom(data, form) {
 }
 
 $("showRegister").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('light');
+  CapacitorBridge.hapticImpact('light').catch(() => {});
   showAuth("register");
 });
 $("showLogin").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('light');
+  CapacitorBridge.hapticImpact('light').catch(() => {});
   showAuth("login");
 });
 
 $("loginForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  await CapacitorBridge.hapticImpact('medium');
+  CapacitorBridge.hapticImpact('medium').catch(() => {});
   const f = new FormData(e.target);
   showError($("loginError"), "");
   try {
@@ -335,7 +346,7 @@ $("loginForm").addEventListener("submit", async (e) => {
 
 $("registerForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  await CapacitorBridge.hapticImpact('medium');
+  CapacitorBridge.hapticImpact('medium').catch(() => {});
   const f = new FormData(e.target);
   const username = String(f.get("username") || "").trim();
   const password = String(f.get("password") || "");
@@ -368,7 +379,7 @@ $("registerForm").addEventListener("submit", async (e) => {
 });
 
 $("logoutBtn").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('medium');
+  CapacitorBridge.hapticImpact('medium').catch(() => {});
   try { await api("/api/v1/auth/logout", { method: "POST" }); } catch (_) {  }
   logoutLocal();
 });
@@ -415,7 +426,7 @@ function resetMeeting() {
   showError($("uploadError"), "");
 }
 $("newMeetingBtn").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('medium');
+  CapacitorBridge.hapticImpact('medium').catch(() => {});
   resetMeeting();
 });
 
@@ -926,7 +937,7 @@ function showInfo(el, msg, isError = true) {
 
 $("uploadForm").addEventListener("submit", async (e) => {
   e.preventDefault();
-  await CapacitorBridge.hapticImpact('medium');
+  CapacitorBridge.hapticImpact('medium').catch(() => {});
   const form = new FormData(e.target);
 
   // 根據 ASR 模式分流處理
@@ -1024,7 +1035,7 @@ async function checkStatus() {
         extra: { meetingId: state.meetingId },
       });
       // 觸覺回饋
-      await CapacitorBridge.hapticNotification('success');
+      CapacitorBridge.hapticNotification('success').catch(() => {});
     } catch (err) {
       console.warn('[Notification] 發送失敗:', err);
     }
@@ -1536,7 +1547,7 @@ function fmtMs(ms) {
 }
 
 $("downloadJsonBtn").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('light');
+  CapacitorBridge.hapticImpact('light').catch(() => {});
   if (!state.transcript) return;
   const out = { ...state.transcript, proofread: state.proofread };
   const blob = new Blob([JSON.stringify(out, null, 2)], { type: "application/json" });
@@ -1685,11 +1696,11 @@ function markCurrent(scroll = false) {
   }
 }
 $("typoPrev").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('light');
+  CapacitorBridge.hapticImpact('light').catch(() => {});
   gotoTypo(review.index <= 0 ? suggestions().length - 1 : review.index - 1);
 });
 $("typoNext").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('light');
+  CapacitorBridge.hapticImpact('light').catch(() => {});
   gotoTypo(review.index + 1);
 });
 
@@ -1715,14 +1726,14 @@ function applyEditResult(out, keepPosition = true) {
 }
 
 $("acceptAllBtn").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('medium');
+  CapacitorBridge.hapticImpact('medium').catch(() => {});
   const n = state.proofread ? state.proofread.counts.pending : 0;
   if (!n || !window.confirm(`把還沒處理的 ${n} 處全部改成 AI 建議的字？（之後還可以一處一處復原）`)) return;
   await decide("accept", null);
 });
 
 $("confirmBtn").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('medium');
+  CapacitorBridge.hapticImpact('medium').catch(() => {});
   const n = state.proofread ? state.proofread.counts.pending : 0;
   if (n && !window.confirm(`還有 ${n} 處疑似錯字沒處理，確認後這些地方會保留原文。確定要確認逐字稿嗎？`)) return;
   $("confirmBtn").disabled = true;
@@ -1736,7 +1747,7 @@ $("confirmBtn").addEventListener("click", async () => {
 });
 
 $("reproofBtn").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('medium');
+  CapacitorBridge.hapticImpact('medium').catch(() => {});
   try {
     const data = await api(`/api/v1/meetings/${state.meetingId}/proofread`, { method: "POST" });
     renderStatus({ status: data.status, error: null });
@@ -1759,7 +1770,7 @@ function syncSummaryLang() {
 $("summaryLang").addEventListener("change", () => { state.summaryLangTouched = true; });
 
 $("summarizeBtn").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('medium');
+  CapacitorBridge.hapticImpact('medium').catch(() => {});
   $("summarizeBtn").disabled = true;
   try {
     const data = await api(`/api/v1/meetings/${state.meetingId}/summary`,
@@ -2128,7 +2139,7 @@ $("downloadSummaryBtn").addEventListener("click", async () => {
     try {
       await CapacitorBridge.writeFile(filename, base64, 'Documents');
       if (window.CapacitorBridge?.hapticNotification) {
-        await CapacitorBridge.hapticNotification('success');
+        CapacitorBridge.hapticNotification('success').catch(() => {});
       }
       return;
     } catch (err) {
@@ -2387,7 +2398,7 @@ function drawShareImage(data) {
 }
 
 $("saveImageBtn").addEventListener("click", async () => {
-  await CapacitorBridge.hapticImpact('light');
+  CapacitorBridge.hapticImpact('light').catch(() => {});
   if (!state.summary) return;
   const canvas = drawShareImage(state.summary);
   canvas.toBlob((blob) => {

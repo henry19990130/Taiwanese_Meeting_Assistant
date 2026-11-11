@@ -3,6 +3,25 @@
  * 使用漸進式增強：Web 環境使用瀏覽器 API，iOS 原生環境使用 Capacitor API
  */
 
+// 除錯：把 JS 錯誤回傳到後端 /debug/jslog（正式版可留著，無後端時靜默失敗）
+(function () {
+  function report(msg) {
+    try {
+      const base = (window.MeetSumConfig && window.MeetSumConfig.apiUrl)
+        ? window.MeetSumConfig.apiUrl("/debug/jslog")
+        : "http://localhost:8000/debug/jslog";
+      fetch(base, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ msg: String(msg).slice(0, 2000) }),
+        keepalive: true,
+      }).catch(() => {});
+    } catch (_) { /* 忽略 */ }
+  }
+  window.addEventListener("error", (e) => report("error: " + e.message + " @ " + e.filename + ":" + e.lineno + ":" + e.colno + "\n" + (e.error && e.error.stack || "")));
+  window.addEventListener("unhandledrejection", (e) => report("unhandledrejection: " + ((e.reason && (e.reason.stack || e.reason.message)) || String(e.reason))));
+})();
+
 // 檢查是否在原生平台
 export function isNative() {
   return window.Capacitor?.isNativePlatform() === true;
@@ -17,40 +36,56 @@ export function hasPlugin(pluginName) {
  * 儲存鑰匙串 / Preferences
  * iOS: Keychain, Android: SharedPreferences, Web: localStorage
  */
+// Preferences 在部分環境（如 PlayCover 無 App Group entitlement）可能失敗或不持久，
+// 一律同時寫 localStorage 作為後備；讀取時 Preferences 優先、取不到再讀 localStorage
 export async function setSecure(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (_) { /* 私密模式等情境，忽略 */ }
   if (isNative() && hasPlugin('Preferences')) {
     const { Preferences } = window.Capacitor.Plugins;
-    await Preferences.set({ key, value });
-  } else {
-    localStorage.setItem(key, value);
+    try {
+      await Preferences.set({ key, value });
+    } catch (_) { /* 後備已寫入，忽略 */ }
   }
 }
 
 export async function getSecure(key) {
   if (isNative() && hasPlugin('Preferences')) {
     const { Preferences } = window.Capacitor.Plugins;
-    const { value } = await Preferences.get({ key });
-    return value ?? null;
-  } else {
+    try {
+      const { value } = await Preferences.get({ key });
+      if (value != null && value !== '') return value;
+    } catch (_) { /* 落到 localStorage */ }
+  }
+  try {
     return localStorage.getItem(key);
+  } catch (_) {
+    return null;
   }
 }
 
 export async function removeSecure(key) {
+  try {
+    localStorage.removeItem(key);
+  } catch (_) { /* 忽略 */ }
   if (isNative() && hasPlugin('Preferences')) {
     const { Preferences } = window.Capacitor.Plugins;
-    await Preferences.remove({ key });
-  } else {
-    localStorage.removeItem(key);
+    try {
+      await Preferences.remove({ key });
+    } catch (_) { /* 忽略 */ }
   }
 }
 
 export async function clearSecure() {
+  try {
+    localStorage.clear();
+  } catch (_) { /* 忽略 */ }
   if (isNative() && hasPlugin('Preferences')) {
     const { Preferences } = window.Capacitor.Plugins;
-    await Preferences.clear();
-  } else {
-    localStorage.clear();
+    try {
+      await Preferences.clear();
+    } catch (_) { /* 忽略 */ }
   }
 }
 
@@ -404,17 +439,21 @@ export async function initCapacitor() {
 
   console.log('[Capacitor] 原生模式初始化');
 
-  // 設定狀態列樣式
-  await setStatusBarStyle('dark', '#1a1a2e');
+  // 每一步獨立容錯：單一 plugin 失敗不影響其他初始化
+  try {
+    await setStatusBarStyle('dark', '#1a1a2e');
+  } catch (err) { console.warn('[Capacitor] StatusBar 失敗:', err); }
 
-  // 隱藏 Splash Screen
-  await hideSplashScreen();
+  try {
+    await hideSplashScreen();
+  } catch (err) { console.warn('[Capacitor] SplashScreen 失敗:', err); }
 
-  // 要求通知權限
-  const hasNotifPerm = await requestNotificationPermission();
-  if (!hasNotifPerm) {
-    console.warn('[Capacitor] 通知權限未授予');
-  }
+  try {
+    const hasNotifPerm = await requestNotificationPermission();
+    if (!hasNotifPerm) {
+      console.warn('[Capacitor] 通知權限未授予');
+    }
+  } catch (err) { console.warn('[Capacitor] 通知權限檢查失敗:', err); }
 
   // 設定鍵盤監聽 (可選)
   setupKeyboardListeners(
