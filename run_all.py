@@ -221,6 +221,22 @@ if 'seed' in STEPS and SEED_DEMO:
 # ---------------------------------------------------------------------------
 if 'backend' in STEPS:
     step('④ 啟動後端')
+    # Google 登入設定：Colab 金鑰或 .env 都可以（config.py 只讀環境變數）
+    for _key in ('GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET', 'GOOGLE_REDIRECT_BASE'):
+        if not os.environ.get(_key):
+            _val = ENV.get(_key)
+            if not _val:
+                try:
+                    from google.colab import userdata
+                    _val = userdata.get(_key)
+                except Exception:
+                    _val = None
+            if _val:
+                os.environ[_key] = _val
+    if os.environ.get('GOOGLE_CLIENT_ID'):
+        print('🔐 Google 登入：已設定 Client ID')
+    else:
+        print('ℹ️ Google 登入未設定（可用帳密登入；要啟用請在 Colab 金鑰加 GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET）')
     subprocess.run(['pkill', '-f', 'uvicorn app[.]main'])
     time.sleep(1)
     server = subprocess.Popen(

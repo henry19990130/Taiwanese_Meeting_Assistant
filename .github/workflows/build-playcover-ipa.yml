@@ -104,6 +104,7 @@ jobs:
         working-directory: ios/App
         run: |
           mkdir -p "${{ env.BUILD_DIR }}"
+          set -o pipefail
           xcodebuild -workspace App.xcodeproj/project.xcworkspace             -scheme App             -configuration ${{ env.CONFIGURATION }}             -destination 'generic/platform=iOS'             -archivePath "${{ env.ARCHIVE_PATH }}"             -derivedDataPath "${{ env.BUILD_DIR }}/DerivedData"             clean archive             CODE_SIGNING_ALLOWED=NO             CODE_SIGN_IDENTITY=""             CODE_SIGNING_REQUIRED=NO             PROVISIONING_PROFILE=""             PROVISIONING_PROFILE_SPECIFIER=""             DEVELOPMENT_TEAM=""             | xcpretty || exit ${PIPESTATUS[0]}
 
       - name: Create IPA from Archive (No Code Signing)

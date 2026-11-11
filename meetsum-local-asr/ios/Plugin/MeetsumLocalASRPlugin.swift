@@ -706,14 +706,16 @@ final class TranscriptionJob {
             let audioURL = resolveAudioURL(audioPath)
 
             // 選擇引擎
-            let engine: LocalASREngine
+            // 引擎型別宣告在 MeetsumLocalASRPlugin 內，這裡是檔案層級的
+            // TranscriptionJob，必須加上外層型別才找得到。
+            let engine: MeetsumLocalASRPlugin.LocalASREngine
             switch engineType {
             case "breezeasr":
-                engine = BreezeASREngine(plugin: plugin)
+                engine = MeetsumLocalASRPlugin.BreezeASREngine(plugin: plugin)
             case "whisperkit":
                 fallthrough
             default:
-                engine = WhisperKitEngine(plugin: plugin)
+                engine = MeetsumLocalASRPlugin.WhisperKitEngine(plugin: plugin)
             }
 
             // 載入模型
