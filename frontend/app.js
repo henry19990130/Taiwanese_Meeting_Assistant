@@ -369,12 +369,18 @@ async function loadStoredAuth() {
       state.user = JSON.parse(userStr);
       // 驗證 token 是否仍有效
       try {
-        await api("/api/v1/auth/me"); // 假設有此端點，或用其他方式驗證
+        await api("/api/v1/auth/me");
         showApp();
         return;
-      } catch (_) {
-        // token 無效，清除並回到登入頁
-        await clearStoredAuth();
+      } catch (err) {
+        // 只有 token 真的失效（401）時才清除；tunnel／網路暫時失敗時保留登入狀態
+        if (err && err.status === 401) {
+          await clearStoredAuth();
+        } else {
+          console.warn("[Auth] 暫時無法驗證登入，保留本機 token:", err);
+          showApp();
+          return;
+        }
       }
     }
   } catch (err) {
@@ -490,8 +496,18 @@ async function handleDeepLink(raw) {
     if ($("appView").hidden) showApp();
     if (window.Entrance) Entrance.open();
   } catch (err) {
-    state.token = null;
-    showError($("loginError"), `Google 登入驗證失敗：${err.message}`);
+    if (err && err.status === 401) {
+      state.token = null;
+      showError($("loginError"), `Google 登入驗證失敗：${err.message}`);
+    } else {
+      // 網路／tunnel 暫時失敗：保留 token，先進 App，後續 API 會再驗證
+      console.warn("[Auth] 暫時無法驗證 Google 登入，保留 token:", err);
+      await saveAuth(token, state.user || {});
+      applyMode("cloud");
+      await persistMode("cloud");
+      if ($("appView").hidden) showApp();
+      if (window.Entrance) Entrance.open();
+    }
   }
 }
 
@@ -888,7 +904,9 @@ async function api(path, { method = "GET", json, form } = {}) {
   if (!res.ok) {
     const d = data.detail;
     const msg = (d && d.message) || (Array.isArray(d) ? "輸入格式不正確" : null) || `錯誤 ${res.status}`;
-    throw new Error(msg);
+    const err = new Error(msg);
+    err.status = res.status;
+    throw err;
   }
   return data;
 }
