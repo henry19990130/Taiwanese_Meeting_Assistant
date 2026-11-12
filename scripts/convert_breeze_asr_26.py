@@ -101,7 +101,7 @@ def run_conversion(
     print("🚀 轉換指令：", flush=True)
     print("   " + " ".join(cmd), flush=True)
     try:
-        result = subprocess.run(cmd, env=env, check=True, text=True, timeout=12600)
+        result = subprocess.run(cmd, env=env, check=True, text=True, timeout=20400)
         print(result.stdout[-4000:] if result.stdout else "")
         print("✅ 轉換完成")
         return True
@@ -109,7 +109,7 @@ def run_conversion(
         print("❌ 找不到 whisperkit-generate-model，請先安裝 WhisperKitTools")
         return False
     except subprocess.TimeoutExpired:
-        print("❌ 轉換逾時（3.5 小時）")
+        print("❌ 轉換逾時（5 小時 40 分）")
         return False
     except subprocess.CalledProcessError as e:
         print(f"❌ 轉換失敗（exit {e.returncode}）")

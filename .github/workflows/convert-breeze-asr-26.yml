@@ -40,8 +40,9 @@ jobs:
   convert:
     name: Convert to Core ML
     runs-on: macos-latest
-    # 4-bit 全模型 palettize（encoder 320 + decoder 194 個 module）約 60-100 分鐘
-    timeout-minutes: 300
+    # 4-bit 轉換：decoder 約 1.5-2 小時、encoder 的 CoreML 轉換 + palettize 約 2-3 小時
+    # GitHub 託管 runner 單一 job 上限 6 小時，留 5 分鐘緩衝
+    timeout-minutes: 355
     permissions:
       contents: write
     outputs:
