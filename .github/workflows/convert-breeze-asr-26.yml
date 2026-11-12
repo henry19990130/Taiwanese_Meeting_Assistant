@@ -101,6 +101,8 @@ jobs:
             --quantize "${{ github.event.inputs.quantize }}"
 
       - name: Verify output
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           python scripts/convert_breeze_asr_26.py --verify-only --output-dir ./breeze-asr-coreml
 
