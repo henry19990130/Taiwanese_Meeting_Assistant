@@ -7,3 +7,5 @@ backend/storage/audio/*
 !backend/storage/audio/.gitkeep
 # 微調模型檔太大（16.8GB），不進 git
 models/**/*.gguf
+# Windows 資料夾設定檔
+desktop.ini
