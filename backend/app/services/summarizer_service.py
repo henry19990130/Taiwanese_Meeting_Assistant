@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 import re
+import threading
 from datetime import date
 
 import httpx
@@ -25,13 +26,30 @@ class SummaryError(Exception):
     pass
 
 
+class ModelMissing(Exception):
+    """Ollama 裡沒有摘要專用模型（還沒建立）。"""
+
+
 class SummarizerService:
     def __init__(self) -> None:
         self.backend = config.LLM_BACKEND
         self.model_name = "fake-summarizer" if self.backend == "fake" else config.LLM_MODEL
+        self._last = threading.local()  # 每個執行緒各自記「上一次摘要實際用的模型」
+
+    @property
+    def used_model(self) -> str:
+        """這個執行緒上一次產生重點時實際用的模型（中文可能是 SUMMARY_MODEL）。"""
+        return getattr(self._last, "model", None) or self.model_name
+
+    def pick_model(self, language: str) -> tuple[str, bool | None]:
+        """SUMMARY_LANGS 的會議用微調版（預設不思考）；其他語言沿用 LLM_MODEL／LLM_THINK。"""
+        if self.backend != "fake" and config.SUMMARY_MODEL and language in config.SUMMARY_LANGS:
+            return config.SUMMARY_MODEL, config.SUMMARY_THINK
+        return self.model_name, config.LLM_THINK
 
     def summarize(self, transcript: dict, meeting: dict | None = None, language: str = "zh") -> dict:
         meeting = meeting or {}
+        self._last.model = self.model_name
         if not transcript.get("segments"):
             raise SummaryError("逐字稿沒有內容")
 
@@ -44,25 +62,38 @@ class SummarizerService:
     def _call_ollama_with_retry(self, transcript: dict, meeting: dict, language: str = "zh") -> dict:
         user_msg = build_user_message(transcript, meeting)
         prompt = system_prompt(language)
+        model, think = self.pick_model(language)
         last_error: Exception | None = None
-        for attempt in (1, 2):
+        attempt = 1
+        while attempt <= 2:
             seed = config.LLM_SEED + attempt - 1
             try:
-                return self._call_ollama(user_msg, seed, prompt)
+                data = self._call_ollama(user_msg, seed, prompt, model=model, think=think)
+                self._last.model = model
+                return data
+            except ModelMissing:
+                log.warning("Ollama 裡沒有摘要模型 %s，改用 %s", model, self.model_name)
+                model, think = self.model_name, config.LLM_THINK
+                continue
             except SummaryError as exc:
                 last_error = exc
-                log.warning("LLM 第 %d 次（seed=%d）回傳無法使用：%s", attempt, seed, exc)
+                log.warning("LLM 第 %d 次（%s，seed=%d）回傳無法使用：%s", attempt, model, seed, exc)
+            attempt += 1
         raise SummaryError(f"LLM 回傳格式錯誤：{last_error}")
 
-    def _call_ollama(self, user_msg: str, seed: int, prompt: str | None = None) -> dict:
+    def _call_ollama(self, user_msg: str, seed: int, prompt: str | None = None,
+                     model: str | None = None, think: bool | None = None) -> dict:
+        if model is None:
+            model, think = self.model_name, config.LLM_THINK
         payload: dict = {
-            "model": self.model_name,
+            "model": model,
             "messages": [
                 {"role": "system", "content": prompt or system_prompt("zh")},
                 {"role": "user", "content": user_msg},
             ],
             "format": "json",
             "stream": False,
+            "keep_alive": config.LLM_KEEP_ALIVE,
             "options": {
                 "temperature": config.LLM_TEMPERATURE,
                 "seed": seed,
@@ -70,8 +101,8 @@ class SummarizerService:
                 "use_cache": True,
             },
         }
-        if config.LLM_THINK is not None:
-            payload["think"] = config.LLM_THINK
+        if think is not None:
+            payload["think"] = think
 
         try:
             resp = httpx.post(
@@ -79,6 +110,8 @@ class SummarizerService:
             )
         except httpx.HTTPError as exc:
             raise RuntimeError(f"無法連線到 Ollama（{config.OLLAMA_HOST}）：{exc}") from exc
+        if resp.status_code == 404 and model != self.model_name and "not found" in resp.text:
+            raise ModelMissing(model)
         if resp.status_code != 200:
             raise RuntimeError(f"Ollama 回應 {resp.status_code}：{resp.text[:300]}")
 
@@ -90,7 +123,7 @@ class SummarizerService:
         if m:
             thinking = thinking or m.group(1)
             content = content[: m.start()] + content[m.end():]
-        _log_stats(body, thinking, seed)
+        _log_stats(body, thinking, seed, model)
 
         if body.get("done_reason") == "length":
             raise SummaryError(
@@ -105,14 +138,14 @@ class SummarizerService:
         return data
 
 
-def _log_stats(body: dict, thinking: str, seed: int) -> None:
+def _log_stats(body: dict, thinking: str, seed: int, model: str = "") -> None:
     prompt_tok = body.get("prompt_eval_count") or 0
     out_tok = body.get("eval_count") or 0
     secs = (body.get("total_duration") or 0) / 1e9
     log.info(
-        "LLM 完成：seed=%d 溫度=%s 思考=%s（草稿 %d 字）輸入 %d tokens＋輸出 %d tokens"
+        "LLM 完成：%s seed=%d 溫度=%s 思考=%s（草稿 %d 字）輸入 %d tokens＋輸出 %d tokens"
         "（上限 %d）耗時 %.0f 秒 結束原因=%s",
-        seed, config.LLM_TEMPERATURE, "有" if thinking else "無", len(thinking),
+        model, seed, config.LLM_TEMPERATURE, "有" if thinking else "無", len(thinking),
         prompt_tok, out_tok, config.LLM_NUM_CTX, secs, body.get("done_reason"),
     )
     if prompt_tok + out_tok > config.LLM_NUM_CTX * 0.9:

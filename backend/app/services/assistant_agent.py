@@ -180,6 +180,7 @@ class AssistantAgent:
     def _chat(self, messages: list[dict], allow_tools: bool) -> dict:
         payload: dict = {
             "model": config.LLM_MODEL, "messages": messages, "stream": False,
+            "keep_alive": config.LLM_KEEP_ALIVE,
             "think": config.ASSISTANT_THINK,
             "options": {"temperature": config.LLM_TEMPERATURE, "seed": config.LLM_SEED,
                         "num_ctx": config.LLM_NUM_CTX, "use_cache": True},

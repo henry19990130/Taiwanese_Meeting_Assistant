@@ -70,6 +70,20 @@ def _ollama():
     return f"Ollama {version}，模型 {config.LLM_MODEL} 已就緒"
 
 
+@check("重點摘要模型")
+def _summary_model():
+    """微調版不在也算通過：產生重點時會自動改用 LLM_MODEL。"""
+    import httpx
+
+    if not config.SUMMARY_MODEL:
+        return f"未設定 SUMMARY_MODEL，重點一律用 {config.LLM_MODEL}"
+    langs = "、".join(sorted(config.SUMMARY_LANGS)) or "（無）"
+    models = [m["name"] for m in httpx.get(f"{config.OLLAMA_HOST}/api/tags", timeout=5).json()["models"]]
+    if config.SUMMARY_MODEL in models or f"{config.SUMMARY_MODEL}:latest" in models:
+        return f"{config.SUMMARY_MODEL}（{langs} 會議，思考 {config.SUMMARY_THINK}）已就緒"
+    return f"⚠️ Ollama 裡沒有 {config.SUMMARY_MODEL}，重點會改用 {config.LLM_MODEL}"
+
+
 @check("簡轉繁 (OpenCC)")
 def _opencc():
     from app.services.asr_service import to_traditional

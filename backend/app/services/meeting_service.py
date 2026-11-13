@@ -374,7 +374,7 @@ def _run_summary(meeting_id: uuid.UUID, owner_id, language: str | None = None) -
         summary = summarizer.summarize(transcript, meeting, language=language)
 
         with get_conn(owner_id) as conn:
-            summaries.upsert_summary(conn, meeting_id, summary, summarizer.model_name, language)
+            summaries.upsert_summary(conn, meeting_id, summary, summarizer.used_model, language)
             meetings.update_status(conn, meeting_id, "completed")
         log.info("會議 %s 重點產生完成", meeting_id)
     except Exception:

@@ -79,6 +79,7 @@ class _HuggingFaceBinding:
 
         self._engine = HuggingFaceEngine()
         self._engine.MODEL_ID = model_id
+        self._engine.batch_size = config.ASR_BATCH_SIZE
         self._whisper_language = whisper_language
 
     def load(self) -> None:
@@ -134,11 +135,16 @@ class _QwenEngine:
     def transcribe_clips(self, clips, sr: int = 16000, language: str | None = None) -> list[str]:
         if self._model is None:
             self.load()
-        results = self._model.transcribe(
-            audio=[(clip, sr) for clip in clips],
-            language="English",
-        )
-        return [(getattr(item, "text", "") or "").strip() for item in results]
+        # 分批送：一次全送會讓顯示卡峰值隨段數變大（40 分鐘會議實測約 16 GB）
+        step = config.ASR_BATCH_SIZE
+        texts: list[str] = []
+        for i in range(0, len(clips), step):
+            results = self._model.transcribe(
+                audio=[(clip, sr) for clip in clips[i:i + step]],
+                language="English",
+            )
+            texts += [(getattr(item, "text", "") or "").strip() for item in results]
+        return texts
 
 
 def build_engine(language: str, dialect: str | None = None):

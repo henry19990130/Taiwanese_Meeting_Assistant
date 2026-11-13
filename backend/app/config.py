@@ -60,8 +60,18 @@ LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0"))
 LLM_SEED = int(os.getenv("LLM_SEED", "42"))
 LLM_NUM_CTX = int(os.getenv("LLM_NUM_CTX", "40960"))
 LLM_TIMEOUT_SECONDS = float(os.getenv("LLM_TIMEOUT_SECONDS", "900"))
+# 語言模型留在顯示卡多久（Ollama keep_alive）；"-1" = 常駐，讓會議小幫手隨時可用
+_ka = os.getenv("LLM_KEEP_ALIVE", "-1").strip()
+LLM_KEEP_ALIVE: int | str = int(_ka) if _ka.lstrip("-").isdigit() else _ka  # Ollama 要數字 -1，或 "30m" 這種字串
 _think = os.getenv("LLM_THINK", "true").strip().lower()
 LLM_THINK = None if _think == "" else _think in ("1", "true", "yes")
+
+# 重點摘要專用的微調模型（Qwen3.8-27B＋摘要 LoRA）。只用在 SUMMARY_LANGS 語言的重點；
+# Ollama 裡還沒有這個模型時會自動改用 LLM_MODEL。SUMMARY_MODEL 設成空白 = 全部用 LLM_MODEL。
+SUMMARY_MODEL = os.getenv("SUMMARY_MODEL", "meetsum-summary").strip()
+_sthink = os.getenv("SUMMARY_THINK", "false").strip().lower()
+SUMMARY_THINK = None if _sthink == "" else _sthink in ("1", "true", "yes")
+SUMMARY_LANGS = frozenset(x.strip() for x in os.getenv("SUMMARY_LANGS", "zh").split(",") if x.strip())
 
 TYPO_CHECK = os.getenv("TYPO_CHECK", "true").strip().lower() in ("1", "true", "yes")
 TYPO_CHUNK = int(os.getenv("TYPO_CHUNK", "40"))
@@ -80,6 +90,11 @@ ASR_MERGE_GAP_S = float(os.getenv("ASR_MERGE_GAP_S", "1.0"))
 ASR_MERGE_MAX_S = float(os.getenv("ASR_MERGE_MAX_S", "20"))
 ASR_MERGE_SHORT_S = float(os.getenv("ASR_MERGE_SHORT_S", "3.0"))
 ASR_DROP_QUIET_DB = float(os.getenv("ASR_DROP_QUIET_DB", "35"))
+# 顯示卡記憶體：語音辨識一次送幾段（越小峰值越低、速度略慢）
+ASR_BATCH_SIZE = max(1, int(os.getenv("ASR_BATCH_SIZE", "4")))
+# 語音辨識前檢查顯示卡剩餘記憶體；不夠就先請 Ollama 讓語言模型暫時退場，避免記憶體不足
+ASR_GPU_GUARD = os.getenv("ASR_GPU_GUARD", "true").strip().lower() in ("1", "true", "yes")
+ASR_VRAM_NEED_MB = int(os.getenv("ASR_VRAM_NEED_MB", "0"))  # 0 = 依語言用內建估計值
 
 AUDIO_DIR = Path(os.getenv("AUDIO_DIR", str(BACKEND_DIR / "storage" / "audio")))
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)

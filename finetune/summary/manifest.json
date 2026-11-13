@@ -1,0 +1,338 @@
+[
+{
+"id": "20200706_L_R001S01C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200706_L_R001S02C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200706_L_R001S03C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200706_L_R001S04C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200706_L_R001S05C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200706_L_R001S06C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200706_L_R001S07C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200706_L_R001S08C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200707_L_R001S01C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200707_L_R001S02C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200707_L_R001S03C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200707_L_R001S04C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200707_L_R001S05C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200707_L_R001S06C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200707_L_R001S07C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200707_L_R001S08C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200708_L_R002S01C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200708_L_R002S02C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200708_L_R002S03C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200708_L_R002S04C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200708_L_R002S05C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200708_L_R002S07C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200708_L_R002S08C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200709_L_R002S01C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200709_L_R002S03C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200709_L_R002S04C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200709_L_R002S05C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200709_L_R002S06C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200709_L_R002S07C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200709_L_R002S08C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200623_S_R001S01C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200623_S_R001S02C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200623_S_R001S03C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200623_S_R001S04C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200623_S_R001S05C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "20200623_S_R001S06C01",
+"lang": "zh",
+"split": "train",
+"max_segs": null
+},
+{
+"id": "L_R003S01C02",
+"lang": "zh",
+"split": "test",
+"max_segs": null
+},
+{
+"id": "L_R003S02C02",
+"lang": "zh",
+"split": "test",
+"max_segs": null
+},
+{
+"id": "L_R003S03C02",
+"lang": "zh",
+"split": "test",
+"max_segs": null
+},
+{
+"id": "L_R003S04C02",
+"lang": "zh",
+"split": "test",
+"max_segs": null
+},
+{
+"id": "L_R004S01C01",
+"lang": "zh",
+"split": "test",
+"max_segs": null
+},
+{
+"id": "L_R004S02C01",
+"lang": "zh",
+"split": "test",
+"max_segs": null
+},
+{
+"id": "L_R004S03C01",
+"lang": "zh",
+"split": "test",
+"max_segs": null
+},
+{
+"id": "L_R004S06C01",
+"lang": "zh",
+"split": "test",
+"max_segs": null
+},
+{
+"id": "EN2001a",
+"lang": "en",
+"split": "train",
+"max_segs": 58
+},
+{
+"id": "EN2001b",
+"lang": "en",
+"split": "train",
+"max_segs": 110
+},
+{
+"id": "EN2001d",
+"lang": "en",
+"split": "train",
+"max_segs": 96
+},
+{
+"id": "EN2001e",
+"lang": "en",
+"split": "train",
+"max_segs": 77
+},
+{
+"id": "EN2003a",
+"lang": "en",
+"split": "train",
+"max_segs": 110
+},
+{
+"id": "EN2004a",
+"lang": "en",
+"split": "train",
+"max_segs": 110
+},
+{
+"id": "EN2005a",
+"lang": "en",
+"split": "train",
+"max_segs": 74
+},
+{
+"id": "EN2006a",
+"lang": "en",
+"split": "train",
+"max_segs": 110
+},
+{
+"id": "EN2006b",
+"lang": "en",
+"split": "train",
+"max_segs": 110
+},
+{
+"id": "EN2002a",
+"lang": "en",
+"split": "test",
+"max_segs": 110
+},
+{
+"id": "EN2002b",
+"lang": "en",
+"split": "test",
+"max_segs": 110
+},
+{
+"id": "EN2002c",
+"lang": "en",
+"split": "test",
+"max_segs": 102
+}
+]

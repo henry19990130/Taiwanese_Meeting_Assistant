@@ -346,6 +346,7 @@ class TypoChecker:
                 {"role": "user", "content": user_msg},
             ],
             "stream": False,
+            "keep_alive": config.LLM_KEEP_ALIVE,
             "think": config.TYPO_THINK,
             "options": {
                 "temperature": config.LLM_TEMPERATURE,

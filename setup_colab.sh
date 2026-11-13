@@ -82,7 +82,9 @@ if ! command -v ollama >/dev/null 2>&1; then
 fi
 
 if ! curl -sf http://127.0.0.1:11434/api/version >/dev/null; then
-  OLLAMA_KEEP_ALIVE=24h nohup ollama serve > logs/ollama.log 2>&1 &
+  # 省顯示卡記憶體：flash attention＋8 位元上下文暫存；一次只放一個語言模型；常駐給小幫手用
+  OLLAMA_FLASH_ATTENTION=1 OLLAMA_KV_CACHE_TYPE=q8_0 OLLAMA_MAX_LOADED_MODELS=1 \
+  OLLAMA_KEEP_ALIVE=-1 nohup ollama serve > logs/ollama.log 2>&1 &
   for i in $(seq 1 30); do
     curl -sf http://127.0.0.1:11434/api/version >/dev/null && break
     sleep 1
@@ -98,6 +100,33 @@ if ! ollama pull "$LLM_MODEL" > logs/ollama_pull.log 2>&1; then
   exit 1
 fi
 echo "完成"
+
+# 重點摘要的微調版（SUMMARY_MODEL，預設 meetsum-summary）：
+# 先找專案內的 models/meetsum-summary，沒有模型檔才找雲端硬碟；
+# 已建立過就略過；找不到檔案或建立失敗都不會中斷安裝，重點會自動改用 ${LLM_MODEL}
+SUMMARY_MODEL="${SUMMARY_MODEL-meetsum-summary}"
+if [ -z "${SUMMARY_MODEL_DIR:-}" ] || ! ls "${SUMMARY_MODEL_DIR}"/*.gguf >/dev/null 2>&1; then
+  if ls "$PROJECT_DIR/models/meetsum-summary"/*.gguf >/dev/null 2>&1; then
+    SUMMARY_MODEL_DIR="$PROJECT_DIR/models/meetsum-summary"
+  else
+    SUMMARY_MODEL_DIR="${SUMMARY_MODEL_DIR:-/content/drive/MyDrive/MeetSum_finetune/ollama_summary}"
+  fi
+fi
+if [ -n "$SUMMARY_MODEL" ]; then
+  if ollama list | awk 'NR>1 {print $1}' | grep -qxE "${SUMMARY_MODEL}(:latest)?"; then
+    echo "   重點摘要模型 ${SUMMARY_MODEL} 已存在"
+  elif [ -f "${SUMMARY_MODEL_DIR}/Modelfile" ] && ls "${SUMMARY_MODEL_DIR}"/*.gguf >/dev/null 2>&1; then
+    echo "   從 ${SUMMARY_MODEL_DIR} 建立重點摘要模型 ${SUMMARY_MODEL}（約 2–5 分鐘）…"
+    if ( cd "$SUMMARY_MODEL_DIR" && ollama create "$SUMMARY_MODEL" -f Modelfile ) > logs/ollama_create_summary.log 2>&1; then
+      echo "   完成"
+    else
+      echo "   ⚠️ 建立失敗（重點會改用 ${LLM_MODEL}），log 最後幾行："
+      tail -c 800 logs/ollama_create_summary.log | tr '\r' '\n' | tail -n 5
+    fi
+  else
+    echo "   ⚠️ 找不到 ${SUMMARY_MODEL_DIR} 的 Modelfile 或 .gguf（專案和雲端硬碟都沒有模型檔），重點會改用 ${LLM_MODEL}"
+  fi
+fi
 
 step 5 "預先下載四個語音辨識模型 (${ASR_ENGINE})"
 ( cd backend && python - <<'PY'

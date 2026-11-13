@@ -1,0 +1,246 @@
+{
+ "base": {
+  "all": {
+   "n": 8,
+   "json_ok": 0.625,
+   "quote_ok": 0.605,
+   "count_diff": 1.8,
+   "topic_f1": 0.3086,
+   "action_f1": 0.1944,
+   "text_sim": 0.2494,
+   "headline_sim": 0.2161
+  },
+  "zh": {
+   "n": 5,
+   "json_ok": 0.4,
+   "quote_ok": 0.393,
+   "count_diff": 2.375,
+   "topic_f1": 0.1748,
+   "action_f1": 0.1111,
+   "text_sim": 0.1091,
+   "headline_sim": 0.0653
+  },
+  "en": {
+   "n": 3,
+   "json_ok": 1.0,
+   "quote_ok": 0.9583,
+   "count_diff": 1.4167,
+   "topic_f1": 0.5317,
+   "action_f1": 0.3333,
+   "text_sim": 0.4833,
+   "headline_sim": 0.4675
+  },
+  "per_meeting": [
+   {
+    "json_ok": 0,
+    "quote_ok": 0,
+    "count_diff": null,
+    "topic_f1": 0,
+    "action_f1": 0,
+    "text_sim": 0,
+    "headline_sim": 0,
+    "id": "L_R003S01C02",
+    "lang": "zh"
+   },
+   {
+    "json_ok": 1,
+    "quote_ok": 0.9649122807017544,
+    "count_diff": 1.5,
+    "topic_f1": 0.5882352941176471,
+    "action_f1": 0.3333333333333333,
+    "text_sim": 0.3518808777429467,
+    "headline_sim": 0.16867469879518074,
+    "id": "L_R003S02C02",
+    "lang": "zh"
+   },
+   {
+    "json_ok": 0,
+    "quote_ok": 0,
+    "count_diff": null,
+    "topic_f1": 0,
+    "action_f1": 0,
+    "text_sim": 0,
+    "headline_sim": 0,
+    "id": "L_R004S01C01",
+    "lang": "zh"
+   },
+   {
+    "json_ok": 0,
+    "quote_ok": 0,
+    "count_diff": null,
+    "topic_f1": 0,
+    "action_f1": 0,
+    "text_sim": 0,
+    "headline_sim": 0,
+    "id": "L_R004S02C01",
+    "lang": "zh"
+   },
+   {
+    "json_ok": 1,
+    "quote_ok": 1.0,
+    "count_diff": 3.25,
+    "topic_f1": 0.28571428571428575,
+    "action_f1": 0.22222222222222224,
+    "text_sim": 0.19367588932806326,
+    "headline_sim": 0.15789473684210528,
+    "id": "L_R004S03C01",
+    "lang": "zh"
+   },
+   {
+    "json_ok": 1,
+    "quote_ok": 1.0,
+    "count_diff": 1.0,
+    "topic_f1": 0.6666666666666666,
+    "action_f1": 0.0,
+    "text_sim": 0.5286666666666666,
+    "headline_sim": 0.5224489795918368,
+    "id": "EN2002a",
+    "lang": "en"
+   },
+   {
+    "json_ok": 1,
+    "quote_ok": 0.875,
+    "count_diff": 1.5,
+    "topic_f1": 0.42857142857142855,
+    "action_f1": 0.5,
+    "text_sim": 0.4713333333333333,
+    "headline_sim": 0.430188679245283,
+    "id": "EN2002b",
+    "lang": "en"
+   },
+   {
+    "json_ok": 1,
+    "quote_ok": 1.0,
+    "count_diff": 1.75,
+    "topic_f1": 0.5000000000000001,
+    "action_f1": 0.5,
+    "text_sim": 0.45,
+    "headline_sim": 0.4497607655502392,
+    "id": "EN2002c",
+    "lang": "en"
+   }
+  ]
+ },
+ "ft": {
+  "all": {
+   "n": 8,
+   "json_ok": 1.0,
+   "quote_ok": 0.9854,
+   "count_diff": 1.625,
+   "topic_f1": 0.6262,
+   "action_f1": 0.2684,
+   "text_sim": 0.4706,
+   "headline_sim": 0.4222
+  },
+  "zh": {
+   "n": 5,
+   "json_ok": 1.0,
+   "quote_ok": 0.9853,
+   "count_diff": 1.95,
+   "topic_f1": 0.6442,
+   "action_f1": 0.3495,
+   "text_sim": 0.4162,
+   "headline_sim": 0.3837
+  },
+  "en": {
+   "n": 3,
+   "json_ok": 1.0,
+   "quote_ok": 0.9855,
+   "count_diff": 1.0833,
+   "topic_f1": 0.5961,
+   "action_f1": 0.1333,
+   "text_sim": 0.5613,
+   "headline_sim": 0.4863
+  },
+  "per_meeting": [
+   {
+    "json_ok": 1,
+    "quote_ok": 1.0,
+    "count_diff": 2.25,
+    "topic_f1": 0.75,
+    "action_f1": 0.0,
+    "text_sim": 0.410323709536308,
+    "headline_sim": 0.35416666666666663,
+    "id": "L_R003S01C02",
+    "lang": "zh"
+   },
+   {
+    "json_ok": 1,
+    "quote_ok": 1.0,
+    "count_diff": 0.75,
+    "topic_f1": 0.823529411764706,
+    "action_f1": 0.0,
+    "text_sim": 0.5748953974895398,
+    "headline_sim": 0.4444444444444445,
+    "id": "L_R003S02C02",
+    "lang": "zh"
+   },
+   {
+    "json_ok": 1,
+    "quote_ok": 0.9859154929577465,
+    "count_diff": 2.75,
+    "topic_f1": 0.6875,
+    "action_f1": 0.6666666666666665,
+    "text_sim": 0.42266666666666663,
+    "headline_sim": 0.3466666666666666,
+    "id": "L_R004S01C01",
+    "lang": "zh"
+   },
+   {
+    "json_ok": 1,
+    "quote_ok": 0.9629629629629629,
+    "count_diff": 2.25,
+    "topic_f1": 0.39999999999999997,
+    "action_f1": 0.6363636363636364,
+    "text_sim": 0.29577956051621906,
+    "headline_sim": 0.34146341463414637,
+    "id": "L_R004S02C01",
+    "lang": "zh"
+   },
+   {
+    "json_ok": 1,
+    "quote_ok": 0.9777777777777777,
+    "count_diff": 1.75,
+    "topic_f1": 0.5599999999999999,
+    "action_f1": 0.4444444444444445,
+    "text_sim": 0.3771661569826707,
+    "headline_sim": 0.4318181818181818,
+    "id": "L_R004S03C01",
+    "lang": "zh"
+   },
+   {
+    "json_ok": 1,
+    "quote_ok": 0.9565217391304348,
+    "count_diff": 1.25,
+    "topic_f1": 0.6666666666666667,
+    "action_f1": 0.0,
+    "text_sim": 0.6126666666666667,
+    "headline_sim": 0.43181818181818177,
+    "id": "EN2002a",
+    "lang": "en"
+   },
+   {
+    "json_ok": 1,
+    "quote_ok": 1.0,
+    "count_diff": 0.5,
+    "topic_f1": 0.5333333333333333,
+    "action_f1": 0.4,
+    "text_sim": 0.572,
+    "headline_sim": 0.555956678700361,
+    "id": "EN2002b",
+    "lang": "en"
+   },
+   {
+    "json_ok": 1,
+    "quote_ok": 1.0,
+    "count_diff": 1.5,
+    "topic_f1": 0.5882352941176471,
+    "action_f1": 0.0,
+    "text_sim": 0.49933333333333335,
+    "headline_sim": 0.47104247104247104,
+    "id": "EN2002c",
+    "lang": "en"
+   }
+  ]
+ }
+}

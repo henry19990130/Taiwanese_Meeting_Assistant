@@ -1,0 +1,99 @@
+{
+  "en": {
+    "helpful_rate": 0.2414,
+    "harmful_rate": 0.4483,
+    "helpful": 7,
+    "harmful": 13,
+    "chunks": 25,
+    "gold": 9,
+    "pred": 29,
+    "tp": 0,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f0.5": 0.0,
+    "clean_chunks": 17,
+    "false_alarm_rate_on_clean_chunks": 0.5882,
+    "error_rate": {
+      "before": 0.198,
+      "after_model": 0.1984,
+      "after_gold": 0.1973
+    },
+    "error_rate_metric": "WER"
+  },
+  "en/real": {
+    "helpful_rate": 0.2414,
+    "harmful_rate": 0.4483,
+    "helpful": 7,
+    "harmful": 13,
+    "chunks": 25,
+    "gold": 9,
+    "pred": 29,
+    "tp": 0,
+    "precision": 0.0,
+    "recall": 0.0,
+    "f0.5": 0.0,
+    "clean_chunks": 17,
+    "false_alarm_rate_on_clean_chunks": 0.5882
+  },
+  "zh": {
+    "helpful_rate": 0.5782,
+    "harmful_rate": 0.0621,
+    "helpful": 270,
+    "harmful": 29,
+    "chunks": 31,
+    "gold": 270,
+    "pred": 467,
+    "tp": 51,
+    "precision": 0.1092,
+    "recall": 0.1889,
+    "f0.5": 0.1193,
+    "clean_chunks": 0,
+    "false_alarm_rate_on_clean_chunks": 0.0,
+    "error_rate": {
+      "before": 0.2478,
+      "after_model": 0.2421,
+      "after_gold": 0.2423
+    },
+    "error_rate_metric": "CER"
+  },
+  "zh/real": {
+    "helpful_rate": 0.5782,
+    "harmful_rate": 0.0621,
+    "helpful": 270,
+    "harmful": 29,
+    "chunks": 31,
+    "gold": 270,
+    "pred": 467,
+    "tp": 51,
+    "precision": 0.1092,
+    "recall": 0.1889,
+    "f0.5": 0.1193,
+    "clean_chunks": 0,
+    "false_alarm_rate_on_clean_chunks": 0.0
+  },
+  "all": {
+    "helpful_rate": 0.5585,
+    "harmful_rate": 0.0847,
+    "helpful": 277,
+    "harmful": 42,
+    "chunks": 56,
+    "gold": 279,
+    "pred": 496,
+    "tp": 51,
+    "precision": 0.1028,
+    "recall": 0.1828,
+    "f0.5": 0.1127,
+    "clean_chunks": 17,
+    "false_alarm_rate_on_clean_chunks": 0.5882
+  },
+  "_meta": {
+    "name": "base_ollama",
+    "backend": "ollama",
+    "model": "qwen3.8:27b",
+    "adapter": null,
+    "split": "test",
+    "kinds": [
+      "real"
+    ]
+  }
+}

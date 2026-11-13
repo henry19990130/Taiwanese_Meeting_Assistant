@@ -11,7 +11,7 @@ from taigi_asr.audio import AudioConverter
 from taigi_asr.engines.fake import FakeEngine
 from taigi_asr.segments import TimestampedSegment
 
-from app.services import asr_models, segmenter
+from app.services import asr_models, gpu_guard, segmenter
 from app.services.asr_models import HAKKA_DIALECTS, LANGUAGES
 
 log = logging.getLogger(__name__)
@@ -149,6 +149,7 @@ class ASRService:
             try:
                 log.info("ASR: 會議語言 %s%s → 載入 %s", LANGUAGES[language]["label"],
                          f"（{HAKKA_DIALECTS[dialect][0]}腔）" if dialect else "", self.last_model)
+                gpu_guard.make_room_for_asr(language)
                 engine.load()
                 t1 = time.time()
                 texts = engine.transcribe_clips(clips, sr)

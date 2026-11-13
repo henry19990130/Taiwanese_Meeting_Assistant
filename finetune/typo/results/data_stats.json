@@ -1,0 +1,78 @@
+{
+  "train": {
+    "zh": {
+      "examples": 422,
+      "clean_examples": 17,
+      "edits": 3259,
+      "by_source": {
+        "asr": 2790,
+        "synthetic": 469
+      },
+      "kinds": {
+        "real": 211,
+        "aug": 211
+      }
+    },
+    "en": {
+      "examples": 458,
+      "clean_examples": 164,
+      "edits": 619,
+      "by_source": {
+        "asr": 348,
+        "synthetic": 271
+      },
+      "kinds": {
+        "real": 229,
+        "aug": 229
+      }
+    }
+  },
+  "dev": {
+    "zh": {
+      "examples": 9,
+      "clean_examples": 0,
+      "edits": 62,
+      "by_source": {
+        "asr": 62
+      },
+      "kinds": {
+        "real": 9
+      }
+    },
+    "en": {
+      "examples": 16,
+      "clean_examples": 12,
+      "edits": 5,
+      "by_source": {
+        "asr": 5
+      },
+      "kinds": {
+        "real": 16
+      }
+    }
+  },
+  "test": {
+    "zh": {
+      "examples": 31,
+      "clean_examples": 0,
+      "edits": 270,
+      "by_source": {
+        "asr": 270
+      },
+      "kinds": {
+        "real": 31
+      }
+    },
+    "en": {
+      "examples": 25,
+      "clean_examples": 17,
+      "edits": 9,
+      "by_source": {
+        "asr": 9
+      },
+      "kinds": {
+        "real": 25
+      }
+    }
+  }
+}
