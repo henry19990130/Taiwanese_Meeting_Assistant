@@ -42,14 +42,14 @@ export function adaptSummaryForImage(data) {
   const meetingContent = {};
   for (const field of LIST_FIELDS) meetingContent[field] = asList(content[field]).map(cloneItem);
   meetingContent.next_meeting = adaptNextMeeting(content.next_meeting);
-  const selection = selectImageCards(meetingContent);
+  const selection = selectImageCards(meetingContent, 5, { headline: source.headline || "" });
 
   const adapted = {
     meeting_id: root.meeting_id || null,
     model_name: root.model_name || null,
     updated_at: root.updated_at || null,
     summary: {
-      meeting_name: source.meeting_name || "會議",
+      meeting_name: source.meeting_name || "",
       meeting_datetime: {
         date: meetingDatetime.date || null,
         start_time: meetingDatetime.start_time || null,
@@ -60,10 +60,10 @@ export function adaptSummaryForImage(data) {
       review_notes: asList(source.review_notes).map(cloneItem),
       language: source.language || "zh",
       image_selection: selection,
+      next_meeting_status: meetingContent.next_meeting.status,
     },
   };
   const validation = validateImageData(adapted);
-  adapted.summary.image_selection = { ...selection };
   adapted.summary.image_validation = validation;
   return adapted;
 }

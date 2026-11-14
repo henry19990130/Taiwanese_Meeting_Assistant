@@ -3,7 +3,8 @@ import { api } from "../composables/useApi.js";
 import { $, downloadBlob, el, fmtDate, fmtMD, fmtMs, safeName, stamp } from "./dom.js";
 import { firstTime, segmentTimes } from "./flow.js";
 import { evidence, jumpTo } from "./jump.js";
-import { drawShareImage } from "./shareImage.js";
+import { drawSummaryCardsImage } from "./image/summaryCardsImage.js";
+import { adaptSummaryForImage } from "./image/imageAdapter.js";
 import { exportDeck } from "./deckView.js";
 import { views } from "../views.js";
 
@@ -248,12 +249,26 @@ views.renderSnapshot = renderSnapshot;
 export function mountSummary() {
   if (summaryBound) return;
   summaryBound = true;
-  $("saveImageBtn").addEventListener("click", () => {
+  $("saveImageBtn").addEventListener("click", async () => {
     if (!meeting.summary) return;
-    const canvas = drawShareImage(meeting.summary);
-    canvas.toBlob((blob) => {
-      if (blob) downloadBlob(blob, `會議快照_${safeName(meeting.summary.summary.meeting_name)}_${stamp(meeting.summary.updated_at)}.png`);
-    }, "image/png");
+    const button = $("saveImageBtn");
+    if (button.disabled) return;
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    try {
+      const imageData = adaptSummaryForImage(meeting.summary);
+      const validation = imageData.summary.image_validation;
+      if (!validation.render_ready) throw new Error(validation.warnings.map((item) => item.message).join("；"));
+      const canvas = drawSummaryCardsImage(imageData);
+      const blob = await new Promise((resolve, reject) => canvas.toBlob((value) => value ? resolve(value) : reject(new Error("PNG 圖片編碼失敗，請再試一次。")), "image/png"));
+      downloadBlob(blob, `會議快照_${safeName(imageData.summary.meeting_name)}_${stamp(imageData.updated_at)}.png`);
+    } catch (error) {
+      console.error("產生會議快照失敗", error);
+      window.alert(`無法下載會議快照：${error.message || "圖片資料驗證或繪製失敗。"}`);
+    } finally {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
   });
   $("deckBtn").addEventListener("click", () => exportDeck());
   $("downloadSummaryBtn").addEventListener("click", async () => {
