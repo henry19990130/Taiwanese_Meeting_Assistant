@@ -89,21 +89,42 @@ export async function clearSecure() {
   }
 }
 
+// Capacitor 的 Directory 列舉只從 JS 套件匯出，不會掛在 window.Capacitor.Plugins 上；
+// 直接讀 Plugins.Directory[directory] 會變成 undefined 並丟出
+// "undefined is not an object (evaluating 'Directory[directory]')"。
+const DIRECTORY_VALUES = {
+  Documents: 'DOCUMENTS',
+  Data: 'DATA',
+  Cache: 'CACHE',
+  External: 'EXTERNAL',
+  ExternalStorage: 'EXTERNAL_STORAGE',
+  Library: 'LIBRARY'
+};
+
+function resolveDirectory(name) {
+  const plugins = (window.Capacitor && window.Capacitor.Plugins) || {};
+  const dir = plugins.Directory;
+  if (dir && dir[name]) return dir[name];
+  if (dir && dir.Documents) return dir.Documents;
+  return DIRECTORY_VALUES[name] || DIRECTORY_VALUES.Documents;
+}
+
 /**
  * 檔案系統存取
  * iOS: Documents 目錄, Android: 外部存儲, Web: 下載
  */
 export async function writeFile(path, base64Data, directory = 'Documents') {
   if (isNative() && hasPlugin('Filesystem')) {
-    const { Filesystem, Directory } = window.Capacitor.Plugins;
-    const dir = Directory[directory] || Directory.Documents;
-    await Filesystem.writeFile({
+    const { Filesystem } = window.Capacitor.Plugins;
+    const dir = resolveDirectory(directory);
+    const result = await Filesystem.writeFile({
       path,
       data: base64Data,
       directory: dir,
       recursive: true
     });
-    return { uri: `file://${dir}/${path}` };
+    // writeFile 會回傳實際的 file:// URI；本機 ASR 需要它才能開啟音檔
+    return { uri: (result && result.uri) || path };
   } else {
     // Web: 觸發下載
     const byteCharacters = atob(base64Data);
@@ -125,8 +146,8 @@ export async function writeFile(path, base64Data, directory = 'Documents') {
 
 export async function readFile(path, directory = 'Documents') {
   if (isNative() && hasPlugin('Filesystem')) {
-    const { Filesystem, Directory } = window.Capacitor.Plugins;
-    const dir = Directory[directory] || Directory.Documents;
+    const { Filesystem } = window.Capacitor.Plugins;
+    const dir = resolveDirectory(directory);
     return Filesystem.readFile({ path, directory: dir });
   } else {
     throw new Error('Web 環境不支援直接讀取本地檔案');
@@ -135,16 +156,16 @@ export async function readFile(path, directory = 'Documents') {
 
 export async function deleteFile(path, directory = 'Documents') {
   if (isNative() && hasPlugin('Filesystem')) {
-    const { Filesystem, Directory } = window.Capacitor.Plugins;
-    const dir = Directory[directory] || Directory.Documents;
+    const { Filesystem } = window.Capacitor.Plugins;
+    const dir = resolveDirectory(directory);
     await Filesystem.deleteFile({ path, directory: dir });
   }
 }
 
 export async function listFiles(directory = 'Documents') {
   if (isNative() && hasPlugin('Filesystem')) {
-    const { Filesystem, Directory } = window.Capacitor.Plugins;
-    const dir = Directory[directory] || Directory.Documents;
+    const { Filesystem } = window.Capacitor.Plugins;
+    const dir = resolveDirectory(directory);
     return Filesystem.readdir({ path: '', directory: dir });
   } else {
     return { files: [] };
