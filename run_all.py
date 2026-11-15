@@ -7,7 +7,7 @@ notebook 可以在 exec 之前設定：
   RUN_ALL_SOURCE = 專案來源資料夾（雲端硬碟或 GitHub 下載的位置）
   RUN_STEPS      = 只跑某幾段，例如 {'setup'}；不設 = 全部跑
 """
-import glob, hashlib, json, os, re, shutil, subprocess, sys, time, urllib.request
+import glob, hashlib, json, os, re, secrets, shutil, subprocess, sys, time, urllib.request
 
 # ===== 選項（要調整改這裡）=====
 USE_TUNNEL = True      # 開 Cloudflare 臨時網址（VS Code 必須開，瀏覽器版 Colab 可關）
@@ -106,20 +106,58 @@ def read_env(path):
     return env
 
 
+def ensure_env(path):
+    """來源沒有 .env（只有空白的 .env.example）時，把必填值補上。
+
+    只補空白的那幾格、只補一次：重跑沿用同一組密碼，才不會跟已經建好的
+    資料庫角色、demo 帳號對不上。回傳這次補了哪些欄位。"""
+    env = read_env(path)
+    need = {
+        'DB_USER': 'meeting',                                   # 跟 setup_colab.sh 的預設一致
+        'DB_PASSWORD': secrets.token_urlsafe(24),
+        # 沿用舊版固定試用密碼（1542d0c 之前的 .env.example 就是這組，notebook 也印這組）
+        'DEMO_PASSWORD': 'demo1234demo1234demo1234',
+    }
+    filled = [k for k, v in need.items() if not env.get(k)]
+    if not filled:
+        return []
+    lines = open(path, encoding='utf-8').read().splitlines() if os.path.exists(path) else []
+    seen = set()
+    out = []
+    for line in lines:
+        stripped = line.strip()
+        is_kv = stripped and not stripped.startswith('#') and '=' in stripped
+        key = stripped.split('=', 1)[0].strip() if is_kv else None
+        if key in need and key not in seen and not env.get(key):
+            out.append(f'{key}={need[key]}')
+            seen.add(key)
+        else:
+            out.append(line)
+    out += [f'{key}={need[key]}' for key in need if key not in seen and not env.get(key)]
+    with open(path, 'w', encoding='utf-8') as f:
+        f.write('\n'.join(out) + '\n')
+    return filled
+
+
 def sync_code():
     """把來源的最新程式複製到 PROJECT_DIR（不動 log、上傳的音檔）。
-    .env 每次依來源重建：有 .env 用 .env，沒有就用 .env.example。
+    .env 來源優先序：來源的 .env → 已補好密碼的 .env → 空白的 .env.example。
     node_modules 與 Vite 快取不複製；頁面用已經建好的 frontend/dist。"""
     shutil.copytree(SOURCE_DIR, PROJECT_DIR, dirs_exist_ok=True,
                     ignore=shutil.ignore_patterns(
                         '.git', '.tmp.driveupload', 'logs', 'audio',
                         '__pycache__', '*.pyc', '.env',
                         'node_modules', '.vite'))
-    for name in ('.env', '.env.example'):
-        src = os.path.join(SOURCE_DIR, name)
-        if os.path.exists(src):
-            shutil.copy2(src, os.path.join(PROJECT_DIR, '.env'))
-            break
+    # .env 來源優先序：使用者自己的 .env → 上次已經補好密碼的 .env（沿用，不換密碼）
+    # → 空白的 .env.example（ensure_env() 再把必填值補上）。
+    src_env = os.path.join(SOURCE_DIR, '.env')
+    dst_env = os.path.join(PROJECT_DIR, '.env')
+    if os.path.exists(src_env):
+        shutil.copy2(src_env, dst_env)
+    elif not read_env(dst_env).get('DB_PASSWORD'):
+        example = os.path.join(SOURCE_DIR, '.env.example')
+        if os.path.exists(example):
+            shutil.copy2(example, dst_env)
     for root, _dirs, files in os.walk(PROJECT_DIR):
         if '/frontend/img' in root:
             continue
@@ -144,7 +182,11 @@ BACKEND_DIR = os.path.join(PROJECT_DIR, 'backend')
 LOG_DIR = os.path.join(PROJECT_DIR, 'logs')
 sync_code()
 os.chdir(PROJECT_DIR)
-ENV = read_env(os.path.join(PROJECT_DIR, '.env'))
+ENV_PATH = os.path.join(PROJECT_DIR, '.env')
+FILLED_ENV = ensure_env(ENV_PATH)
+if FILLED_ENV:
+    print('ℹ️ 來源沒有 .env，已自動補上：', '、'.join(FILLED_ENV), '（寫在執行位置的 .env，重跑沿用同一組）')
+ENV = read_env(ENV_PATH)
 DEMO_USER = ENV.get('DEMO_USERNAME') or 'demo'
 DEMO_PASS = ENV.get('DEMO_PASSWORD') or ''
 
@@ -309,7 +351,10 @@ if 'tunnel' in STEPS and USE_TUNNEL:
 step('完成')
 if 'tunnel' in STEPS and PUBLIC_URL:
     print('👉 用瀏覽器打開：', PUBLIC_URL)
-    print('   登入密碼在 .env 的 DEMO_PASSWORD，這裡不顯示')
+    if 'DEMO_PASSWORD' in FILLED_ENV:
+        print(f'   登入帳號：{DEMO_USER}　密碼：{DEMO_PASS}（自動產生，也寫在 .env）')
+    else:
+        print('   登入密碼在 .env 的 DEMO_PASSWORD，這裡不顯示')
     print('   ※ 若顯示「無法連上這個網站」：等 30 秒後重新整理；仍不行，在 Windows 命令提示字元執行')
     print('     ipconfig /flushdns 再重新整理（電腦記住了「查不到」的結果）')
     print('   ※ 每次重跑都會換新網址，舊網址會失效')
